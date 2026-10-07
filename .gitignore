@@ -1,0 +1,11 @@
+.build/
+output/
+*.rpm
+*.deb
+*.pem
+*.key
+*.log
+*.args
+scripts/diagnostics/diagnostics.env
+rdp-diagnostics-logs/
+.DS_Store

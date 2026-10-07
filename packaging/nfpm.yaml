@@ -1,0 +1,29 @@
+name: freerdp-portable
+arch: amd64
+platform: linux
+version: ${PACKAGE_VERSION}
+maintainer: jeeftor
+description: FreeRDP SDL3 client with Wayland and X11 backends and rdpctl connection manager
+homepage: https://github.com/jeeftor/rdp
+license: Apache-2.0
+contents:
+  - src: ${BUNDLE_DIR}/
+    dst: /opt/freerdp-portable/
+    type: tree
+  - src: ${LAUNCHER_DIR}/freerdp
+    dst: /usr/bin/freerdp-portable
+  - src: ${LAUNCHER_DIR}/rdpctl
+    dst: /usr/bin/rdpctl
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.39)
+      - bash
+      - xkb-data
+      - libegl1
+  rpm:
+    depends:
+      - glibc >= 2.39
+      - bash
+      - xkeyboard-config
+      - libEGL.so.1()(64bit)

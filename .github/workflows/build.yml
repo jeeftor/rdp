@@ -1,0 +1,91 @@
+name: Build and release
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: Install build dependencies
+        run: bash scripts/install-build-deps.sh
+      - name: Check code and launchers
+        run: make check
+      - name: Install pinned packager
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+      - name: Build client
+        run: make build
+      - name: Package tarball, RPM, DEB, and matching sources
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [[ "$REF_TYPE" == tag ]]; then
+            [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || exit 2
+            export PACKAGE_VERSION="${RELEASE_TAG#v}"
+          fi
+          make package
+      - name: Test Wayland and X11 display backends
+        run: bash tests/display-backends.sh
+      - name: Test installed DEB launchers and removal
+        run: |
+          sudo apt-get install -y ./output/*.deb
+          freerdp-portable /version
+          rdpctl --help
+          sudo apt-get remove -y freerdp-portable
+          test ! -e /usr/bin/freerdp-portable
+          test ! -e /usr/bin/rdpctl
+          test ! -e /opt/freerdp-portable
+          dpkg-deb --info output/*.deb
+      - name: Check RPM metadata
+        run: |
+          sudo apt-get install -y rpm
+          rpm -qp --requires output/*.rpm
+          rpm -qpl output/*.rpm
+      - name: Verify checksums and public artifact contents
+        run: |
+          (cd output && sha256sum --check SHA256SUMS)
+          if find .build/freerdp-portable-* -type f \( -name '*.pem' -o -name '*.key' -o -name '*.args' \) | rg .; then exit 1; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: freerdp-linux-x86_64
+          if-no-files-found: error
+          path: |
+            output/*.tar.gz
+            output/*.rpm
+            output/*.deb
+            output/SHA256SUMS
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: freerdp-linux-x86_64
+          path: output
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          (cd output && sha256sum --check SHA256SUMS)
+          gh release create "$RELEASE_TAG" output/*.tar.gz output/*.rpm output/*.deb output/SHA256SUMS \
+            --verify-tag --prerelease --title "$RELEASE_TAG" \
+            --notes 'FreeRDP SDL3 client with Wayland and X11 backends. Includes a portable tarball, RPM, DEB, matching source archives, and SHA-256 checksums. Ubuntu 24.04 and headless display smoke tests run in CI. RHEL 10 installation, real RDP connections, and physical multi-monitor behavior still require target validation.'
