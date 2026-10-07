@@ -33,7 +33,7 @@ args=(--ro-bind / / --dev-bind /dev /dev --proc /proc --bind /tmp /tmp --bind "$
 for pattern in /usr/lib/x86_64-linux-gnu/libgtk-3.so* /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so* /usr/lib/x86_64-linux-gnu/libjavascriptcoregtk-4.1.so*; do
   [[ ! -f "$pattern" ]] || args+=(--ro-bind /dev/null "$pattern")
 done
-args+=(--tmpfs /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1)
+args+=(--tmpfs /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1 --ro-bind /dev/null /usr/bin/bwrap --ro-bind /dev/null /usr/bin/xdg-dbus-proxy)
 exec bwrap "${args[@]}" "${RDPCTL_PORTABLE_TEST_APP:-$root/bundle/rdpctl}" "$@"
 WRAPPER
 chmod 0755 .build/portable-test/isolated-gui

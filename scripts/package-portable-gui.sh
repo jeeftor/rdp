@@ -20,6 +20,8 @@ import json
 from pathlib import Path
 root = Path.cwd()
 config = {"bundle": {"linux": {"appimage": {"files": {
+    "/usr/bin/bwrap": "/usr/bin/bwrap",
+    "/usr/bin/xdg-dbus-proxy": "/usr/bin/xdg-dbus-proxy",
     "/usr/share/rdpctl/freerdp": str(root / ".build/portable-client"),
     "/usr/share/licenses/rdpctl-gui": str(root / ".build/gui-licenses"),
     "/usr/share/fonts/truetype/dejavu": "/usr/share/fonts/truetype/dejavu",
