@@ -73,3 +73,22 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("Cannot start the rdpctl desktop application");
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use glib::variant::ToVariant;
+
+    #[test]
+    fn glib_string_variant_iteration_survives_optimization() {
+        let values = ["first", "second", "third"];
+        let variant = values.to_variant();
+        assert_eq!(
+            variant.array_iter_str().unwrap().collect::<Vec<_>>(),
+            values
+        );
+        assert_eq!(
+            variant.array_iter_str().unwrap().rev().collect::<Vec<_>>(),
+            ["third", "second", "first"]
+        );
+    }
+}

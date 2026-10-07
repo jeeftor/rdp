@@ -1,9 +1,12 @@
 [workspace]
 members = ["core", "src-tauri"]
+exclude = ["patches/glib"]
 resolver = "2"
+
+[patch.crates-io]
+glib = { path = "patches/glib" }
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-

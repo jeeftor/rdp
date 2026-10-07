@@ -33,13 +33,14 @@ jobs:
           path: |
             ~/.cargo/registry
             desktop/target
-          key: ${{ runner.os }}-rdpctl-rust-1.98.1-${{ hashFiles('desktop/Cargo.lock') }}
+          key: ${{ runner.os }}-rdpctl-rust-1.98.1-${{ hashFiles('desktop/Cargo.lock', 'desktop/patches/**') }}
       - name: Check and build desktop
         run: |
           make gui-check
           shellcheck scripts/package-gui.sh desktop/tests/display-backends.sh
           cargo build --manifest-path desktop/Cargo.toml -p rdpctl-gui --locked
           make gui-build
+          cargo test --manifest-path desktop/Cargo.toml -p rdpctl-gui --release --locked
           mkdir -p output
           cp desktop/target/release/rdpctl-gui output/rdpctl-gui
       - name: Install GUI test driver

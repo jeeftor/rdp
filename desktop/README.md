@@ -16,6 +16,9 @@ Editing, deletion, and password storage are outside this first version.
 Install Rust 1.98.1 through your usual development setup. On Ubuntu 24.04, install
 `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf build-essential pkg-config`.
 The lockfile pins all Rust dependencies; no Node.js toolchain is required.
+The workspace includes an upstream GLib security fix backported for Tauri's
+GTK3 dependencies; see [patches/README.md](patches/README.md). Weekly Dependabot
+checks cover Rust, Go and GitHub Actions.
 
 ```bash
 make gui-check

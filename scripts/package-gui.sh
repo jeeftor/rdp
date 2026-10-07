@@ -8,7 +8,7 @@ test -f "$GUI_BINARY"
 mkdir -p output .build/gui-sources/.cargo "$GUI_LICENSES"
 cargo vendor --manifest-path desktop/Cargo.toml --locked .build/gui-sources/vendor > .build/gui-vendor-config.toml
 sed 's|directory = ".build/gui-sources/vendor"|directory = "vendor"|' .build/gui-vendor-config.toml > .build/gui-sources/.cargo/config.toml
-cp -R desktop/core desktop/src-tauri desktop/ui .build/gui-sources/
+cp -R desktop/core desktop/src-tauri desktop/ui desktop/patches .build/gui-sources/
 rm -rf .build/gui-sources/src-tauri/gen
 cp desktop/Cargo.toml desktop/Cargo.lock desktop/rust-toolchain.toml desktop/README.md LICENSE .build/gui-sources/
 while IFS= read -r -d '' file; do
@@ -16,6 +16,8 @@ while IFS= read -r -d '' file; do
   mkdir -p "$GUI_LICENSES/$(dirname "$relative")"
   cp "$file" "$GUI_LICENSES/$relative"
 done < <(find .build/gui-sources/vendor -type f \( -iname '*license*' -o -iname '*copying*' -o -iname '*notice*' -o -iname '*copyright*' -o -name Cargo.toml \) -print0)
+mkdir -p "$GUI_LICENSES/glib-0.18.5-patched"
+cp desktop/patches/glib/LICENSE desktop/patches/glib/COPYRIGHT desktop/patches/README.md "$GUI_LICENSES/glib-0.18.5-patched/"
 # envsubst needs literal variable names, rather than their values.
 # shellcheck disable=SC2016
 envsubst '${PACKAGE_VERSION} ${GUI_BINARY} ${GUI_LICENSES}' < packaging/gui-nfpm.yaml > .build/gui-nfpm.yaml
