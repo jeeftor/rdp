@@ -15,7 +15,7 @@ while IFS= read -r -d '' file; do
   relative="${file#.build/gui-sources/vendor/}"
   mkdir -p "$GUI_LICENSES/$(dirname "$relative")"
   cp "$file" "$GUI_LICENSES/$relative"
-done < <(find .build/gui-sources/vendor -type f \( -iname '*license*' -o -iname '*copying*' -o -name Cargo.toml \) -print0)
+done < <(find .build/gui-sources/vendor -type f \( -iname '*license*' -o -iname '*copying*' -o -iname '*notice*' -o -iname '*copyright*' -o -name Cargo.toml \) -print0)
 # envsubst needs literal variable names, rather than their values.
 # shellcheck disable=SC2016
 envsubst '${PACKAGE_VERSION} ${GUI_BINARY} ${GUI_LICENSES}' < packaging/gui-nfpm.yaml > .build/gui-nfpm.yaml

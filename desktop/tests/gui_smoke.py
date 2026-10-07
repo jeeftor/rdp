@@ -75,6 +75,7 @@ def main() -> None:
                         raise RuntimeError("tauri-driver exited before startup")
                     time.sleep(0.1)
             value = request("POST", "/session", {"capabilities": {"alwaysMatch": {
+                "browserName": "wry",
                 "tauri:options": {"application": application}
             }}})
             session = value["sessionId"]
