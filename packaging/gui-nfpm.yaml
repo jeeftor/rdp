@@ -1,0 +1,35 @@
+name: rdpctl-gui
+arch: amd64
+platform: linux
+version: ${PACKAGE_VERSION}
+maintainer: jeeftor <6491743+jeeftor@users.noreply.github.com>
+description: Desktop connection manager for the portable FreeRDP client
+homepage: https://github.com/jeeftor/rdp
+license: Apache-2.0
+contents:
+  - src: ${GUI_BINARY}
+    dst: /usr/bin/rdpctl-gui
+  - src: packaging/rdpctl-gui.desktop
+    dst: /usr/share/applications/rdpctl-gui.desktop
+  - src: desktop/src-tauri/icons/icon.png
+    dst: /usr/share/icons/hicolor/128x128/apps/rdpctl-gui.png
+  - src: LICENSE
+    dst: /usr/share/licenses/rdpctl-gui/LICENSE
+  - src: desktop/README.md
+    dst: /usr/share/doc/rdpctl-gui/README.md
+  - src: ${GUI_LICENSES}/
+    dst: /usr/share/licenses/rdpctl-gui/dependencies/
+    type: tree
+overrides:
+  deb:
+    depends:
+      - freerdp-portable
+      - libc6 (>= 2.39)
+      - libwebkit2gtk-4.1-0
+      - libgtk-3-0
+  rpm:
+    depends:
+      - freerdp-portable
+      - glibc >= 2.39
+      - webkit2gtk4.1
+      - gtk3

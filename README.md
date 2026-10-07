@@ -60,6 +60,11 @@ remain in your home directory when you remove the package.
 
 ## Saved connections
 
+A Rust/Tauri graphical connection manager is being developed in
+[desktop/](desktop/README.md). It shares these profiles and launches the same
+FreeRDP client, with display selection and password prompts through FreeRDP.
+The GUI is not included in the existing `v0.1.0-rc.2` release.
+
 Run `./bin/rdpctl` in the archive, or `rdpctl` after package installation, to
 manage connections interactively. Profiles contain hosts and usernames but no
 passwords. They live in `~/.config/rdpctl/connections`; generated desktop

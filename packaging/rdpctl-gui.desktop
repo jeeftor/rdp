@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=rdpctl
+Comment=Manage and launch your remote desktop connections
+Exec=rdpctl-gui
+Icon=rdpctl-gui
+Terminal=false
+Categories=Network;RemoteAccess;

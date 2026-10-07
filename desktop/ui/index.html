@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>rdpctl</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header><div><p class="eyebrow">REMOTE DESKTOP</p><h1>Your connections</h1></div><button id="refresh" type="button">Refresh</button></header>
+  <main>
+    <section aria-label="Saved connections"><div id="connections"></div></section>
+    <aside>
+      <h2>New connection</h2>
+      <form id="profile-form">
+        <label>Name<input name="name" required placeholder="Windows workstation" maxlength="160"></label>
+        <label>Host<input name="host" required placeholder="windows.example.invalid" maxlength="255"></label>
+        <label>User<input name="user" required placeholder="DOMAIN\username" maxlength="255"></label>
+        <label class="check"><input type="checkbox" name="fullscreen"> Full screen</label>
+        <label class="check"><input type="checkbox" name="multi_monitor"> Use multiple monitors</label>
+        <fieldset><legend>Monitors <span>(optional)</span></legend><div id="monitors"><p class="hint">Use the default monitors, or detect your displays.</p></div><button id="detect-monitors" type="button">Detect displays</button></fieldset>
+        <p class="hint">Select displays to use for this connection. Leave all unchecked to use FreeRDP’s defaults.</p>
+        <button class="primary" type="submit">Save connection</button>
+      </form>
+      <p class="hint">FreeRDP asks for your password when you connect. Your profiles never store passwords.</p>
+    </aside>
+  </main>
+  <footer><p id="status" role="status" aria-live="polite">Loading your saved connections…</p></footer>
+</body>
+</html>

@@ -9,3 +9,5 @@ output/
 scripts/diagnostics/diagnostics.env
 rdp-diagnostics-logs/
 .DS_Store
+desktop/target/
+desktop/src-tauri/gen/
