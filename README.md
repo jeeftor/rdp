@@ -52,8 +52,10 @@ freerdp /version
 rdpctl --help
 ```
 
-Packages install the bundle under `/opt/freerdp-portable` and commands under
-`/usr/bin`. They do not replace distribution FreeRDP libraries. Your profiles
+Packages install the bundle under `/opt/freerdp-portable` and the `freerdp`
+and `rdpctl` commands under `/usr/bin`. Upgrading from `v0.1.0-rc.1` replaces
+its `freerdp-portable` command with `freerdp`. They do not replace distribution
+FreeRDP libraries. Your profiles
 remain in your home directory when you remove the package.
 
 ## Saved connections
@@ -95,7 +97,7 @@ Move existing output aside before repeating packaging.
 
 Every push, pull request, and manual workflow run builds and validates the
 artifacts. CI checks the packaged SDL library under Xvfb and headless Weston,
-runs FreeRDP monitor enumeration on each backend, installs/removes the DEB,
+runs FreeRDP monitor enumeration on each backend, upgrades/removes the DEB,
 and inspects RPM metadata. These checks do not prove actual RDP connectivity
 or physical multi-monitor behavior on another workstation.
 

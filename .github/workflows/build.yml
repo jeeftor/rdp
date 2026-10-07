@@ -41,11 +41,18 @@ jobs:
           make package
       - name: Test Wayland and X11 display backends
         run: bash tests/display-backends.sh
-      - name: Test installed DEB launchers and removal
+      - name: Test DEB upgrade, installed launchers, and removal
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          gh release download v0.1.0-rc.1 --repo jeeftor/rdp --pattern '*.deb' --pattern SHA256SUMS --dir .build/upgrade-base
+          (cd .build/upgrade-base && sha256sum --ignore-missing --check SHA256SUMS)
+          sudo apt-get install -y ./.build/upgrade-base/*.deb
+          freerdp-portable /version
           sudo apt-get install -y ./output/*.deb
           freerdp /version
           rdpctl --help
+          test ! -e /usr/bin/freerdp-portable
           sudo apt-get remove -y freerdp-portable
           test ! -e /usr/bin/freerdp
           test ! -e /usr/bin/rdpctl
