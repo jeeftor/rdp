@@ -24,6 +24,8 @@ jobs:
       - name: Check code and launchers
         run: make check
       - name: Install pinned packager
+        env:
+          GOTOOLCHAIN: auto
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
       - name: Build client
         run: make build

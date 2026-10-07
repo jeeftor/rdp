@@ -79,12 +79,14 @@ Build on Ubuntu 24.04 x86_64 with Go matching `go.mod`:
 
 ```bash
 bash scripts/install-build-deps.sh
-go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+GOTOOLCHAIN=auto go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
 make check
 make build
 make package
 ```
 
+The packager installs with its own required Go toolchain; this does not change
+the application's Go requirement in `go.mod`.
 The dependency installer uses `sudo`, enables Ubuntu source repositories, and
 installs build tools. Compilation runs as your user. Plain `make` prints help.
 Source versions and SHA-256 checksums are pinned in
