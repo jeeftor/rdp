@@ -8,7 +8,12 @@ use tauri::Emitter;
 fn client_path() -> Result<PathBuf, String> {
     let client = std::env::var_os("RDPCTL_FREERDP")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/opt/freerdp-portable/freerdp"));
+        .unwrap_or_else(|| {
+            std::env::var_os("APPDIR")
+                .filter(|value| !value.is_empty())
+                .map(|directory| PathBuf::from(directory).join("usr/share/rdpctl/freerdp/freerdp"))
+                .unwrap_or_else(|| PathBuf::from("/opt/freerdp-portable/freerdp"))
+        });
     if !client.is_absolute() {
         return Err("RDPCTL_FREERDP must be an absolute path to the FreeRDP wrapper.".into());
     }

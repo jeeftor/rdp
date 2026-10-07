@@ -39,7 +39,25 @@ DEB smoke-test baseline. **RHEL 10 is an intended target; installation, real
 RDP connections, and physical multi-monitor behavior require target validation.**
 An RPM/DEB extension alone does not establish support for every distribution.
 
-## RPM and DEB installation
+## Combined desktop installation
+
+For an air-gapped desktop, download **rdpctl-portable**: a single RPM/DEB with
+FreeRDP, the Rust GUI and GTK/WebKit runtime. Verify `GUI-SHA256SUMS` first.
+
+```bash
+sudo dnf install ./rdpctl-portable-*.x86_64.rpm
+# Ubuntu 24.04:
+sudo apt install ./rdpctl-portable_*_amd64.deb
+```
+
+The package replaces the older two packages and installs under
+`/opt/rdpctl-portable`. Open **rdpctl** from your application menu, or run
+`rdpctl-gui`. The `freerdp` command remains available. For installation without
+root, extract the `rdpctl-portable-x86_64-VERSION.tar.gz` archive and run
+`./rdpctl` inside it. See [desktop documentation](desktop/README.md) for the
+AppImage alternative, building, and remaining host requirements.
+
+## Client-only RPM and DEB installation
 
 ```bash
 # RHEL 10: install the downloaded RPM (target validation pending).
@@ -64,8 +82,8 @@ A Rust/Tauri graphical connection manager is available in
 [desktop/](desktop/README.md). It shares these profiles and launches the same
 FreeRDP client, with display selection and password prompts through FreeRDP.
 Prereleases from `v0.1.0-rc.3` include separate `rdpctl-gui` RPM and DEB packages.
-Install the GUI alongside `freerdp-portable`, then open **rdpctl** from your
-application menu. See the desktop documentation for runtime dependencies.
+Those smaller packages require host GTK/WebKit. For air-gapped use, choose
+the combined `rdpctl-portable` package described above.
 
 Run `./bin/rdpctl` in the archive, or `rdpctl` after package installation, to
 manage connections interactively. Profiles contain hosts and usernames but no

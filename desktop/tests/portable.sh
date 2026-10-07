@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(pwd -P)"
+version="${PACKAGE_VERSION:-0.1.0-dev}"
+portable="$root/.build/rdpctl-portable-x86_64-$version"
+client="$portable/app/usr/share/rdpctl/freerdp/freerdp"
+"$client" /version
+rpm -qp --requires output/rdpctl-portable*.rpm
+if rpm -qp --requires output/rdpctl-portable*.rpm | rg 'webkit|gtk3'; then exit 1; fi
+if dpkg-deb -f output/rdpctl-portable*.deb Depends | rg 'webkit|libgtk'; then exit 1; fi
+
+# Exercise the exact upgrade from the old two packages in an isolated RPM database.
+mkdir -p .build/rpm-upgrade
+rpm --root "$root/.build/rpm-upgrade" --initdb
+rpm --root "$root/.build/rpm-upgrade" --nodeps -i .build/portable-input/freerdp-portable*.rpm output/rdpctl-gui*.rpm
+rpm --root "$root/.build/rpm-upgrade" --nodeps -U output/rdpctl-portable*.rpm
+rpm --root "$root/.build/rpm-upgrade" -q rdpctl-portable
+if rpm --root "$root/.build/rpm-upgrade" -q freerdp-portable; then exit 1; fi
+if rpm --root "$root/.build/rpm-upgrade" -q rdpctl-gui; then exit 1; fi
+rpm --root "$root/.build/rpm-upgrade" -qf /usr/bin/freerdp /usr/bin/rdpctl-gui
+
+# WebDriver needs a debug binary. Keep the packaged production binary intact.
+mkdir -p .build/portable-test
+cp -a "$portable" .build/portable-test/bundle
+cp desktop/target/debug/rdpctl-gui .build/portable-test/bundle/app/usr/bin/rdpctl-gui
+cat > .build/portable-test/isolated-gui <<'WRAPPER'
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+args=(--ro-bind / / --dev-bind /dev /dev --proc /proc --bind /tmp /tmp --bind "$root" "$root")
+# Hide the host GUI libraries and WebKit helpers only for the app process.
+# WebDriver remains outside this namespace; WebKit's own sandbox stays enabled.
+for pattern in /usr/lib/x86_64-linux-gnu/libgtk-3.so* /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so* /usr/lib/x86_64-linux-gnu/libjavascriptcoregtk-4.1.so*; do
+  [[ ! -f "$pattern" ]] || args+=(--ro-bind /dev/null "$pattern")
+done
+args+=(--tmpfs /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1)
+exec bwrap "${args[@]}" "$root/bundle/rdpctl" "$@"
+WRAPPER
+chmod 0755 .build/portable-test/isolated-gui
+bash desktop/tests/display-backends.sh .build/portable-test/isolated-gui
+
+# Install and remove the combined DEB after both legacy packages.
+sudo apt-get install -y ./.build/portable-input/freerdp-portable*.deb ./output/rdpctl-gui*.deb
+sudo apt-get install -y ./output/rdpctl-portable*.deb
+freerdp /version
+test "$(dpkg-query -S /usr/bin/rdpctl-gui)" = 'rdpctl-portable: /usr/bin/rdpctl-gui'
+sudo apt-get remove -y rdpctl-portable
+test ! -e /opt/rdpctl-portable
+test ! -e /usr/bin/freerdp

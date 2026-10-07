@@ -2,9 +2,9 @@ name: Desktop build
 on:
   push:
     branches: ['**']
-    paths: ['desktop/**', 'packaging/gui-nfpm.yaml', 'packaging/rdpctl-gui.desktop', 'scripts/package-gui.sh', '.github/workflows/desktop.yml', 'Makefile']
+    paths: ['desktop/**', 'packaging/gui-nfpm.yaml', 'packaging/rdpctl-gui.desktop', 'scripts/package-gui.sh', 'scripts/*portable*.sh', 'packaging/portable*', 'packaging/AppImageKit-LICENSE', '.github/workflows/desktop.yml', 'Makefile']
   pull_request:
-    paths: ['desktop/**', 'packaging/gui-nfpm.yaml', 'packaging/rdpctl-gui.desktop', 'scripts/package-gui.sh', '.github/workflows/desktop.yml', 'Makefile']
+    paths: ['desktop/**', 'packaging/gui-nfpm.yaml', 'packaging/rdpctl-gui.desktop', 'scripts/package-gui.sh', 'scripts/*portable*.sh', 'packaging/portable*', 'packaging/AppImageKit-LICENSE', '.github/workflows/desktop.yml', 'Makefile']
   workflow_dispatch:
   workflow_call:
 permissions:
@@ -23,8 +23,8 @@ jobs:
           go-version-file: go.mod
       - name: Install desktop build and test dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf pkg-config build-essential webkit2gtk-driver xvfb xauth weston gettext-base shellcheck dbus-x11
+          bash scripts/install-build-deps.sh
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf pkg-config build-essential webkit2gtk-driver xvfb xauth weston gettext-base shellcheck dbus-x11 fonts-dejavu-core bubblewrap rpm
           rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
           rustup show
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -34,6 +34,18 @@ jobs:
             ~/.cargo/registry
             desktop/target
           key: ${{ runner.os }}-rdpctl-rust-1.98.1-${{ hashFiles('desktop/Cargo.lock', 'desktop/patches/**') }}
+      - name: Fetch matching client artifact for tagged releases
+        if: github.ref_type == 'tag'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: freerdp-linux-x86_64
+          path: .build/portable-input
+      - name: Fetch verified client baseline for development builds
+        if: github.ref_type != 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.1.0-rc.4 --repo jeeftor/rdp --pattern 'freerdp-portable*' --pattern SHA256SUMS --dir .build/portable-input
       - name: Check and build desktop
         run: |
           make gui-check
@@ -44,7 +56,9 @@ jobs:
           mkdir -p output
           cp desktop/target/release/rdpctl-gui output/rdpctl-gui
       - name: Install GUI test driver
-        run: cargo install tauri-driver --version 2.0.5 --locked
+        run: |
+          cargo install tauri-driver --version 2.0.5 --locked
+          cargo install tauri-cli --version 2.12.1 --locked
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: steps.rust-cache.outputs.cache-hit != 'true'
         with:
@@ -67,6 +81,8 @@ jobs:
           fi
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
           make gui-package
+          make gui-portable-package
+          bash desktop/tests/portable.sh
           (cd output && sha256sum --check GUI-SHA256SUMS)
           dpkg-deb --info output/rdpctl-gui*.deb
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -76,5 +92,6 @@ jobs:
           if-no-files-found: warn
           path: |
             output/rdpctl-gui*
+            output/rdpctl-portable*
             output/GUI-SHA256SUMS
             output/desktop-tests/

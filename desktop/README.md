@@ -26,37 +26,49 @@ make gui-build
 desktop/target/release/rdpctl-gui
 ```
 
-The launcher uses `/opt/freerdp-portable/freerdp`. For development, set
+The portable launcher uses its bundled FreeRDP client through `APPDIR`.
+The separate GUI package uses `/opt/freerdp-portable/freerdp`. For development, set
 `RDPCTL_FREERDP` to an absolute path to another FreeRDP wrapper. Display variables
 are inherited, allowing the existing wrapper to select Wayland or X11.
 The frontend cannot supply an executable path or run arbitrary shell commands.
 
 ## Packages and testing
 
-`make gui-package` uses the existing pinned nFPM packager to create a separate
-`rdpctl-gui` RPM and DEB, checksums, dependency licenses, and a source archive
-including the locked Rust dependencies. Install the matching `freerdp-portable`
-package first or alongside it. The GUI adds an application-menu entry named
-**rdpctl**. The original terminal command remains available.
+The recommended air-gap package is **rdpctl-portable**: one RPM or DEB installs
+FreeRDP, the GUI, GTK3, WebKitGTK 4.1, their helper processes and resources.
+It replaces the older `freerdp-portable` and `rdpctl-gui` packages. Open **rdpctl**
+from the application menu after installation. Profiles remain in your home directory.
 
 ```bash
-sudo dnf install ./freerdp-portable*.rpm ./rdpctl-gui*.rpm
+# RHEL 10: DNF handles replacement of the older packages.
+sudo dnf install ./rdpctl-portable-*.x86_64.rpm
 # Ubuntu 24.04:
-sudo apt install ./freerdp-portable*.deb ./rdpctl-gui*.deb
+sudo apt install ./rdpctl-portable_*_amd64.deb
 ```
 
-The GitHub desktop workflow builds natively on Ubuntu 24.04, runs Rust tests and
-Clippy, drives the actual Tauri webview under X11 and Wayland, and creates both
-packages. Tagged prereleases from `v0.1.0-rc.3` include the GUI RPM, DEB,
-source archive and `GUI-SHA256SUMS` alongside the client packages. Publishing
-waits for both builds and display tests to pass. Development builds remain
-available in the `rdpctl-desktop-linux-x86_64` Actions artifact. Earlier releases
-do not contain the GUI.
+For installation without root or FUSE, verify `GUI-SHA256SUMS`, extract
+`rdpctl-portable-x86_64-VERSION.tar.gz` to a local executable filesystem,
+enter its directory, and run `./rdpctl`. An AppImage is also available; use
+`chmod +x FILE.AppImage` and `./FILE.AppImage --appimage-extract-and-run` when
+FUSE is unavailable. The bundled client is under `app/usr/share/rdpctl/freerdp`.
+Host glibc 2.39 or later, desktop graphics drivers, EGL and keyboard data are
+still required. Actual RHEL 10 installation, real RDP connections and physical
+multi-monitor behavior require target validation.
 
-The GUI needs host GTK3 and WebKitGTK 4.1 at runtime. RHEL 10 requires the latter
-from EPEL; offline installations must include those dependencies. The current
-Ubuntu-built RPM requires glibc 2.39 or later. Actual RHEL 10 installation,
-graphics drivers, and real RDP connections still require target validation.
+`make gui-package` retains the smaller separate GUI RPM/DEB for systems that
+already have GTK3 and WebKitGTK 4.1. `make gui-portable-package` runs after that
+step, requires tauri-cli 2.12.1 and a checksum-verified client release in
+`.build/portable-input`, and creates the combined packages, AppImage, tarball,
+matching sources, dependency notices and `GUI-SHA256SUMS`.
+
+The GitHub desktop workflow builds natively on Ubuntu 24.04 and tests the
+actual webview under X11 and Wayland. Portable smoke tests hide the host GTK
+and WebKit libraries and helper processes from the application, then exercise
+profile saving, monitor selection and launching through the bundled runtime.
+CI also checks upgrades from the older two-package installation.
+Tagged releases use the client artifact built from the same tag; development
+GUI builds use the pinned `v0.1.0-rc.4` client baseline. Release publication waits
+for both client and desktop builds and tests to pass.
 
 To rebuild the source archive offline, extract it, enter `gui-sources`, and run
 `cargo build --release --locked --offline -p rdpctl-gui` with the documented Rust

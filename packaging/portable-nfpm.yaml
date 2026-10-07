@@ -1,0 +1,42 @@
+name: rdpctl-portable
+arch: amd64
+platform: linux
+version: ${PACKAGE_VERSION}
+maintainer: jeeftor <6491743+jeeftor@users.noreply.github.com>
+description: Air-gap-ready rdpctl GUI, GTK/WebKit runtime, and FreeRDP client
+homepage: https://github.com/jeeftor/rdp
+license: Apache-2.0
+provides:
+  - freerdp-portable
+  - rdpctl-gui
+replaces:
+  - freerdp-portable
+  - rdpctl-gui
+conflicts:
+  - freerdp-portable
+  - rdpctl-gui
+contents:
+  - src: ${PORTABLE_DIR}/
+    dst: /opt/rdpctl-portable/
+    type: tree
+  - src: .build/portable-launchers/rdpctl-gui
+    dst: /usr/bin/rdpctl-gui
+  - src: .build/portable-launchers/freerdp
+    dst: /usr/bin/freerdp
+  - src: packaging/rdpctl-gui.desktop
+    dst: /usr/share/applications/rdpctl-gui.desktop
+  - src: desktop/src-tauri/icons/icon.png
+    dst: /usr/share/icons/hicolor/128x128/apps/rdpctl-gui.png
+overrides:
+  rpm:
+    depends:
+      - glibc >= 2.39
+      - bash
+      - xkeyboard-config
+      - libEGL.so.1()(64bit)
+  deb:
+    depends:
+      - libc6 (>= 2.39)
+      - bash
+      - xkb-data
+      - libegl1
