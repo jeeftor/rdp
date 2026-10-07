@@ -11,13 +11,13 @@ if dpkg-deb -f output/rdpctl-portable*.deb Depends | rg 'webkit|libgtk'; then ex
 
 # Exercise the exact upgrade from the old two packages in an isolated RPM database.
 mkdir -p .build/rpm-upgrade
-rpm --root "$root/.build/rpm-upgrade" --initdb
-rpm --root "$root/.build/rpm-upgrade" --nodeps -i .build/portable-input/freerdp-portable*.rpm output/rdpctl-gui*.rpm
-rpm --root "$root/.build/rpm-upgrade" --nodeps -U output/rdpctl-portable*.rpm
-rpm --root "$root/.build/rpm-upgrade" -q rdpctl-portable
-if rpm --root "$root/.build/rpm-upgrade" -q freerdp-portable; then exit 1; fi
-if rpm --root "$root/.build/rpm-upgrade" -q rdpctl-gui; then exit 1; fi
-rpm --root "$root/.build/rpm-upgrade" -qf /usr/bin/freerdp /usr/bin/rdpctl-gui
+sudo rpm --root "$root/.build/rpm-upgrade" --initdb
+sudo rpm --root "$root/.build/rpm-upgrade" --nodeps -i .build/portable-input/freerdp-portable*.rpm output/rdpctl-gui*.rpm
+sudo rpm --root "$root/.build/rpm-upgrade" --nodeps -U output/rdpctl-portable*.rpm
+sudo rpm --root "$root/.build/rpm-upgrade" -q rdpctl-portable
+if sudo rpm --root "$root/.build/rpm-upgrade" -q freerdp-portable; then exit 1; fi
+if sudo rpm --root "$root/.build/rpm-upgrade" -q rdpctl-gui; then exit 1; fi
+sudo rpm --root "$root/.build/rpm-upgrade" -qf /usr/bin/freerdp /usr/bin/rdpctl-gui
 
 # WebDriver needs a debug binary. Keep the packaged production binary intact.
 mkdir -p .build/portable-test
