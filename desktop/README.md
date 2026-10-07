@@ -66,7 +66,9 @@ The GitHub desktop workflow builds natively on Ubuntu 24.04 and tests the
 actual webview under X11 and Wayland. Portable smoke tests hide the host GTK
 and WebKit libraries and helper processes from the application, then exercise
 profile saving, monitor selection and launching through the bundled runtime.
-CI also checks upgrades from the older two-package installation.
+CI also checks upgrades from the older two-package installation. The Ubuntu
+runner loads a temporary AppArmor rule for the namespace test helpers; the
+application does not disable the WebKit sandbox.
 Tagged releases use the client artifact built from the same tag; development
 GUI builds use the pinned `v0.1.0-rc.4` client baseline. Release publication waits
 for both client and desktop builds and tests to pass.

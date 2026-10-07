@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(pwd -P)"
+# Ubuntu 24.04 restricts unprivileged namespaces. Allow only the test helper
+# paths on this disposable runner; the WebKit sandbox remains enabled.
+cat > .build/rdpctl-test.apparmor <<PROFILE
+abi <abi/4.0>,
+include <tunables/global>
+profile rdpctl-test-isolation /usr/bin/bwrap flags=(unconfined) {
+  userns,
+}
+profile rdpctl-test-bundled "$root/.build/**/app/usr/bin/bwrap" flags=(unconfined) {
+  userns,
+}
+PROFILE
+sudo apparmor_parser -r .build/rdpctl-test.apparmor
+# Fail here before WebDriver waits on a process that cannot start.
+bwrap --ro-bind / / --proc /proc --dev-bind /dev /dev /usr/bin/true
 version="${PACKAGE_VERSION:-0.1.0-dev}"
 portable="$root/.build/rdpctl-portable-x86_64-$version"
 client="$portable/app/usr/share/rdpctl/freerdp/freerdp"
@@ -11,13 +26,13 @@ if dpkg-deb -f output/rdpctl-portable*.deb Depends | rg 'webkit|libgtk'; then ex
 
 # Exercise the exact upgrade from the old two packages in an isolated RPM database.
 mkdir -p .build/rpm-upgrade
-sudo rpm --root "$root/.build/rpm-upgrade" --initdb
-sudo rpm --root "$root/.build/rpm-upgrade" --nodeps -i .build/portable-input/freerdp-portable*.rpm output/rdpctl-gui*.rpm
-sudo rpm --root "$root/.build/rpm-upgrade" --nodeps -U output/rdpctl-portable*.rpm
-sudo rpm --root "$root/.build/rpm-upgrade" -q rdpctl-portable
-if sudo rpm --root "$root/.build/rpm-upgrade" -q freerdp-portable; then exit 1; fi
-if sudo rpm --root "$root/.build/rpm-upgrade" -q rdpctl-gui; then exit 1; fi
-sudo rpm --root "$root/.build/rpm-upgrade" -qf /usr/bin/freerdp /usr/bin/rdpctl-gui
+rpm --root "$root/.build/rpm-upgrade" --initdb
+rpm --root "$root/.build/rpm-upgrade" --nodeps -i .build/portable-input/freerdp-portable*.rpm output/rdpctl-gui*.rpm
+rpm --root "$root/.build/rpm-upgrade" --nodeps -U output/rdpctl-portable*.rpm
+rpm --root "$root/.build/rpm-upgrade" -q rdpctl-portable
+if rpm --root "$root/.build/rpm-upgrade" -q freerdp-portable; then exit 1; fi
+if rpm --root "$root/.build/rpm-upgrade" -q rdpctl-gui; then exit 1; fi
+rpm --root "$root/.build/rpm-upgrade" -qf /usr/bin/freerdp /usr/bin/rdpctl-gui
 
 # WebDriver needs a debug binary. Keep the packaged production binary intact.
 mkdir -p .build/portable-test
