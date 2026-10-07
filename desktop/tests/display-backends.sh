@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 app="${1:?Pass the built rdpctl-gui binary}"
+extra=("${@:2}")
 # Headless displays use software rendering and an isolated session bus.
 export WEBKIT_DISABLE_DMABUF_RENDERER=1
 export LIBGL_ALWAYS_SOFTWARE=1
 mkdir -p output/desktop-tests
-dbus-run-session -- xvfb-run -a env -u WAYLAND_DISPLAY GDK_BACKEND=x11 python3 desktop/tests/gui_smoke.py "$app" output/desktop-tests/x11.png
+dbus-run-session -- xvfb-run -a env -u WAYLAND_DISPLAY GDK_BACKEND=x11 python3 desktop/tests/gui_smoke.py "$app" output/desktop-tests/x11.png "${extra[@]}"
 
 runtime="$(mktemp -d)"
 weston_pid=''
@@ -23,4 +24,4 @@ for _ in {1..100}; do
   sleep 0.1
 done
 test -S "$runtime/rdpctl-test"
-dbus-run-session -- env -u DISPLAY XDG_RUNTIME_DIR="$runtime" WAYLAND_DISPLAY=rdpctl-test GDK_BACKEND=wayland python3 desktop/tests/gui_smoke.py "$app" output/desktop-tests/wayland.png
+dbus-run-session -- env -u DISPLAY XDG_RUNTIME_DIR="$runtime" WAYLAND_DISPLAY=rdpctl-test GDK_BACKEND=wayland python3 desktop/tests/gui_smoke.py "$app" output/desktop-tests/wayland.png "${extra[@]}"

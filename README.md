@@ -45,7 +45,7 @@ For an air-gapped desktop, download **rdpctl-portable**: a single RPM/DEB with
 FreeRDP, the Rust GUI and GTK/WebKit runtime. Verify `GUI-SHA256SUMS` first.
 
 ```bash
-sudo dnf install ./rdpctl-portable-*.x86_64.rpm
+sudo dnf --disablerepo='*' install ./rdpctl-portable-*.x86_64.rpm
 # Ubuntu 24.04:
 sudo apt install ./rdpctl-portable_*_amd64.deb
 ```

@@ -68,6 +68,14 @@ fn launch_profile(app: tauri::AppHandle, id: String) -> Result<u32, String> {
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    if let Some(directory) = std::env::var_os("APPDIR") {
+        let fonts = PathBuf::from(directory).join("usr/share/rdpctl/fonts.conf");
+        if fonts.is_file() {
+            // Set this before GTK starts its worker threads, including in AppImages.
+            std::env::set_var("FONTCONFIG_FILE", fonts);
+        }
+    }
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             list_profiles,

@@ -42,6 +42,7 @@ def wait_for(check: Callable[[], Any], description: str) -> Any:
 
 def main() -> None:
     """Run a save, detect, launch, and duplicate-protection smoke test."""
+    bundled_monitors = sys.argv[3:] == ["--bundled-monitors"]
     application = str(Path(sys.argv[1]).resolve())
     screenshot = Path(sys.argv[2])
     with tempfile.TemporaryDirectory(prefix="rdpctl-gui-") as temporary:
@@ -63,6 +64,8 @@ def main() -> None:
         )
         client.chmod(0o700)
         environment = dict(os.environ, XDG_CONFIG_HOME=str(root), RDPCTL_FREERDP=str(client))
+        if bundled_monitors:
+            environment.pop("RDPCTL_FREERDP", None)
         driver = subprocess.Popen(["tauri-driver"], env=environment)
         session: str | None = None
         try:
@@ -88,6 +91,12 @@ def main() -> None:
             assert javascript("return document.querySelector('.connection h2').textContent") == existing["name"]
             assert javascript("return document.querySelectorAll('.connection b').length") == 0
             javascript("document.querySelector('#detect-monitors').click()")
+            if bundled_monitors:
+                wait_for(lambda: javascript("return document.querySelectorAll('[name=monitor]').length > 0"), "bundled FreeRDP monitor enumeration")
+                screenshot.parent.mkdir(parents=True, exist_ok=True)
+                screenshot.write_bytes(base64.b64decode(request("GET", f"/session/{session}/screenshot")))
+                print("Portable GUI smoke passed: detected actual monitors through the bundled FreeRDP client.")
+                return
             wait_for(lambda: javascript("return document.querySelectorAll('[name=monitor]').length === 2"), "SDL monitor IDs")
             javascript("""
               const form = document.querySelector('form');

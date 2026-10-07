@@ -17,4 +17,4 @@ tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-glib = "0.18.5"
+glib = { path = "../patches/glib" }

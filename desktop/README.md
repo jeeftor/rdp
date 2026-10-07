@@ -41,7 +41,7 @@ from the application menu after installation. Profiles remain in your home direc
 
 ```bash
 # RHEL 10: DNF handles replacement of the older packages.
-sudo dnf install ./rdpctl-portable-*.x86_64.rpm
+sudo dnf --disablerepo='*' install ./rdpctl-portable-*.x86_64.rpm
 # Ubuntu 24.04:
 sudo apt install ./rdpctl-portable_*_amd64.deb
 ```

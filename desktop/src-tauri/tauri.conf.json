@@ -13,7 +13,7 @@
     "active": true,
     "icon": ["icons/icon.png"],
     "targets": ["deb", "rpm"],
-    "category": "Network",
+    "category": "Utility",
     "shortDescription": "Saved connections for the portable FreeRDP client",
     "linux": {
       "deb": { "depends": ["freerdp-portable", "libwebkit2gtk-4.1-0", "libgtk-3-0"] },
