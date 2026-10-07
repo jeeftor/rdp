@@ -48,6 +48,7 @@ jobs:
           gh release download v0.1.0-rc.4 --repo jeeftor/rdp --pattern 'freerdp-portable*' --pattern SHA256SUMS --dir .build/portable-input
       - name: Check and build desktop
         run: |
+          bash desktop/tests/portable-notices.sh
           make gui-check
           shellcheck scripts/package-gui.sh desktop/tests/display-backends.sh
           cargo build --manifest-path desktop/Cargo.toml -p rdpctl-gui --locked

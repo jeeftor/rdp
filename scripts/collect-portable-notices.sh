@@ -8,7 +8,7 @@ while IFS= read -r -d '' file; do
   relative="${file#"$app/"}"
   case "$relative" in usr/share/rdpctl/freerdp/*|usr/share/licenses/*) continue ;; esac
   records="$(dpkg-query -S "/$relative" 2>/dev/null || true)"
-  if [[ -z "$records" ]]; then
+  if [[ -z "$records" ]] && { [[ "$relative" == *.typelib ]] || file -Lb "$file" | rg -q '^ELF '; }; then
     records="$(dpkg-query -S "*/$(basename "$file")" 2>/dev/null || true)"
   fi
   while IFS= read -r record; do

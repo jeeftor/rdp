@@ -27,6 +27,8 @@ cat > .build/portable-test/isolated-gui <<'WRAPPER'
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+export XDG_CACHE_HOME="${XDG_CONFIG_HOME:?}/cache"
+export XDG_DATA_HOME="$XDG_CONFIG_HOME/data"
 args=(--ro-bind / / --dev-bind /dev /dev --proc /proc --bind /tmp /tmp --bind "$root" "$root")
 # Hide the host GUI libraries and WebKit helpers only for the app process.
 # WebDriver remains outside this namespace; WebKit's own sandbox stays enabled.

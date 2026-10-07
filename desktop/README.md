@@ -52,7 +52,8 @@ enter its directory, and run `./rdpctl`. An AppImage is also available; use
 `chmod +x FILE.AppImage` and `./FILE.AppImage --appimage-extract-and-run` when
 FUSE is unavailable. The bundled client is under `app/usr/share/rdpctl/freerdp`.
 Host glibc 2.39 or later, desktop graphics drivers, EGL and keyboard data are
-still required. Actual RHEL 10 installation, real RDP connections and physical
+still required, along with kernel support and permission for WebKit sandbox
+namespaces. Actual RHEL 10 installation, real RDP connections and physical
 multi-monitor behavior require target validation.
 
 `make gui-package` retains the smaller separate GUI RPM/DEB for systems that
