@@ -48,7 +48,7 @@ sudo dnf install ./freerdp-portable*.rpm
 # Ubuntu 24.04: install the downloaded DEB.
 sudo apt install ./freerdp-portable*.deb
 
-freerdp-portable /version
+freerdp /version
 rdpctl --help
 ```
 

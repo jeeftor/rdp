@@ -11,7 +11,7 @@ contents:
     dst: /opt/freerdp-portable/
     type: tree
   - src: ${LAUNCHER_DIR}/freerdp
-    dst: /usr/bin/freerdp-portable
+    dst: /usr/bin/freerdp
   - src: ${LAUNCHER_DIR}/rdpctl
     dst: /usr/bin/rdpctl
 overrides:

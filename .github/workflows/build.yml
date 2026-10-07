@@ -44,10 +44,10 @@ jobs:
       - name: Test installed DEB launchers and removal
         run: |
           sudo apt-get install -y ./output/*.deb
-          freerdp-portable /version
+          freerdp /version
           rdpctl --help
           sudo apt-get remove -y freerdp-portable
-          test ! -e /usr/bin/freerdp-portable
+          test ! -e /usr/bin/freerdp
           test ! -e /usr/bin/rdpctl
           test ! -e /opt/freerdp-portable
           dpkg-deb --info output/*.deb
