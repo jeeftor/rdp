@@ -34,10 +34,12 @@ for pattern in /usr/lib/x86_64-linux-gnu/libgtk-3.so* /usr/lib/x86_64-linux-gnu/
   [[ ! -f "$pattern" ]] || args+=(--ro-bind /dev/null "$pattern")
 done
 args+=(--tmpfs /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1)
-exec bwrap "${args[@]}" "$root/bundle/rdpctl" "$@"
+exec bwrap "${args[@]}" "${RDPCTL_PORTABLE_TEST_APP:-$root/bundle/rdpctl}" "$@"
 WRAPPER
 chmod 0755 .build/portable-test/isolated-gui
 bash desktop/tests/display-backends.sh .build/portable-test/isolated-gui
+# Production also must create its actual window through the isolated launcher.
+RDPCTL_PORTABLE_TEST_APP="$portable/rdpctl" dbus-run-session -- xvfb-run -a env -u WAYLAND_DISPLAY GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 bash desktop/tests/portable-production.sh "$root/.build/portable-test/isolated-gui"
 
 # Install and remove the combined DEB after both legacy packages.
 sudo apt-get install -y ./.build/portable-input/freerdp-portable*.deb ./output/rdpctl-gui*.deb
