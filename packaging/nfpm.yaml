@@ -2,7 +2,7 @@ name: freerdp-portable
 arch: amd64
 platform: linux
 version: ${PACKAGE_VERSION}
-maintainer: jeeftor
+maintainer: jeeftor <6491743+jeeftor@users.noreply.github.com>
 description: FreeRDP SDL3 client with Wayland and X11 backends and rdpctl connection manager
 homepage: https://github.com/jeeftor/rdp
 license: Apache-2.0

@@ -6,7 +6,7 @@ sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   build-essential cmake ninja-build pkg-config curl ca-certificates \
-  file ripgrep bison flex dpkg-dev \
+  file ripgrep bison flex dpkg-dev jq gettext-base \
   libssl-dev zlib1g-dev libjpeg-dev libkrb5-dev libicu-dev \
   libxml2-dev libffi-dev libfreetype-dev libharfbuzz-dev \
   libwayland-dev wayland-protocols libxkbcommon-dev libxkbcommon-x11-dev \

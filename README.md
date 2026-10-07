@@ -109,5 +109,6 @@ This project's code and scripts use [Apache-2.0](LICENSE), matching FreeRDP.
 Bundled dependencies retain their own licenses. Each binary bundle includes
 `LICENSES/`, system-library package provenance, source pins, build information,
 and per-file checksums. The accompanying `*-sources.tar.gz` contains pinned
-upstream archives and matching Ubuntu source packages for redistributed system
-libraries. Host glibc and graphics drivers are not redistributed wholesale.
+upstream archives, Go dependency archives, and matching Ubuntu source packages
+for redistributed system libraries. Host glibc and graphics drivers are not
+redistributed wholesale.
