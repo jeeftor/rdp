@@ -5,8 +5,17 @@ root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "$root/config/freerdp-version.env"
 bundle="$root/.build/freerdp-portable-x86_64-$FREERDP_VERSION"
 export LD_LIBRARY_PATH="$bundle/lib"
+check_monitors() {
+  local output status=0
+  output="$("$@" "$bundle/freerdp" /list:monitor 2>&1)" || status=$?
+  printf '%s\n' "$output"
+  # FreeRDP uses 255 for this successful informational command.
+  [[ "$status" -eq 0 || "$status" -eq 255 ]]
+  rg -q '^listing [1-9][0-9]* monitors:' <<<"$output"
+  rg -q '\[[0-9]+\].*[0-9]+x[0-9]+' <<<"$output"
+}
 xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 "$root/.build/sdl-backends" x11
-xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 "$bundle/freerdp" /list:monitor
+check_monitors xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11
 export XDG_RUNTIME_DIR
 XDG_RUNTIME_DIR="$(mktemp -d)"
 chmod 700 "$XDG_RUNTIME_DIR"
@@ -25,4 +34,4 @@ for _ in {1..100}; do
 done
 [[ -S "$XDG_RUNTIME_DIR/rdp-test" ]] || { cat "$XDG_RUNTIME_DIR/weston.log"; exit 1; }
 env -u DISPLAY WAYLAND_DISPLAY=rdp-test SDL_VIDEODRIVER=wayland "$root/.build/sdl-backends" wayland
-env -u DISPLAY WAYLAND_DISPLAY=rdp-test SDL_VIDEODRIVER=wayland "$bundle/freerdp" /list:monitor
+check_monitors env -u DISPLAY WAYLAND_DISPLAY=rdp-test SDL_VIDEODRIVER=wayland
