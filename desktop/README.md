@@ -44,9 +44,11 @@ sudo apt install ./freerdp-portable*.deb ./rdpctl-gui*.deb
 
 The GitHub desktop workflow builds natively on Ubuntu 24.04, runs Rust tests and
 Clippy, drives the actual Tauri webview under X11 and Wayland, and creates both
-packages. Download the `rdpctl-desktop-linux-x86_64` Actions artifact from the
-feature branch while this prototype is under review. Existing published
-`v0.1.0-rc.2` assets do not contain this new GUI.
+packages. Tagged prereleases from `v0.1.0-rc.3` include the GUI RPM, DEB,
+source archive and `GUI-SHA256SUMS` alongside the client packages. Publishing
+waits for both builds and display tests to pass. Development builds remain
+available in the `rdpctl-desktop-linux-x86_64` Actions artifact. Earlier releases
+do not contain the GUI.
 
 The GUI needs host GTK3 and WebKitGTK 4.1 at runtime. RHEL 10 requires the latter
 from EPEL; offline installations must include those dependencies. The current

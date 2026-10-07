@@ -77,9 +77,13 @@ jobs:
             output/*.deb
             output/SHA256SUMS
 
+  desktop:
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/desktop.yml
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, desktop]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -88,6 +92,10 @@ jobs:
         with:
           name: freerdp-linux-x86_64
           path: output
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rdpctl-desktop-linux-x86_64
+          path: output
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -95,6 +103,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           (cd output && sha256sum --check SHA256SUMS)
-          gh release create "$RELEASE_TAG" output/*.tar.gz output/*.rpm output/*.deb output/SHA256SUMS \
+          (cd output && sha256sum --check GUI-SHA256SUMS)
+          gh release create "$RELEASE_TAG" output/*.tar.gz output/*.rpm output/*.deb output/SHA256SUMS output/GUI-SHA256SUMS \
             --verify-tag --prerelease --title "$RELEASE_TAG" \
-            --notes 'FreeRDP SDL3 client with Wayland and X11 backends. Includes a portable tarball, RPM, DEB, matching source archives, and SHA-256 checksums. Ubuntu 24.04 and headless display smoke tests run in CI. RHEL 10 installation, real RDP connections, and physical multi-monitor behavior still require target validation.'
+            --notes 'Rust/Tauri rdpctl GUI and FreeRDP SDL3 client with Wayland and X11 backends. Install both freerdp-portable and rdpctl-gui packages, then open rdpctl from the application menu. Includes RPMs, DEBs, a portable client tarball, matching source archives, dependency licenses, and SHA-256 checksums. Both builds and headless X11/Wayland GUI tests must pass before publishing. GUI runtime requires GTK3 and WebKitGTK 4.1 (EPEL on RHEL 10), with glibc 2.39 or later. RHEL 10 installation, real RDP connections, and physical multi-monitor behavior still require target validation.'

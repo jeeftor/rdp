@@ -60,10 +60,12 @@ remain in your home directory when you remove the package.
 
 ## Saved connections
 
-A Rust/Tauri graphical connection manager is being developed in
+A Rust/Tauri graphical connection manager is available in
 [desktop/](desktop/README.md). It shares these profiles and launches the same
 FreeRDP client, with display selection and password prompts through FreeRDP.
-The GUI is not included in the existing `v0.1.0-rc.2` release.
+Prereleases from `v0.1.0-rc.3` include separate `rdpctl-gui` RPM and DEB packages.
+Install the GUI alongside `freerdp-portable`, then open **rdpctl** from your
+application menu. See the desktop documentation for runtime dependencies.
 
 Run `./bin/rdpctl` in the archive, or `rdpctl` after package installation, to
 manage connections interactively. Profiles contain hosts and usernames but no
@@ -107,7 +109,8 @@ and inspects RPM metadata. These checks do not prove actual RDP connectivity
 or physical multi-monitor behavior on another workstation.
 
 Pushing a project SemVer tag such as `v0.1.0-rc.1` publishes the validated
-artifacts to a GitHub prerelease. Project/package versions are independent of
+client and GUI artifacts to a GitHub prerelease after both builds and their
+X11/Wayland checks pass. Project/package versions are independent of
 the pinned FreeRDP version in archive names. Only the release job has repository
 write permission; build and pull-request jobs have read permission. No private
 certificates, proxy settings, or connection profiles are needed in GitHub.

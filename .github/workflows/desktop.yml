@@ -6,6 +6,7 @@ on:
   pull_request:
     paths: ['desktop/**', 'packaging/gui-nfpm.yaml', 'packaging/rdpctl-gui.desktop', 'scripts/package-gui.sh', '.github/workflows/desktop.yml', 'Makefile']
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 jobs:
@@ -56,7 +57,13 @@ jobs:
       - name: Package desktop RPM, DEB and sources
         env:
           GOTOOLCHAIN: auto
+          RELEASE_TAG: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
+          if [[ "$REF_TYPE" == tag ]]; then
+            [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || exit 2
+            export PACKAGE_VERSION="${RELEASE_TAG#v}"
+          fi
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
           make gui-package
           (cd output && sha256sum --check GUI-SHA256SUMS)
