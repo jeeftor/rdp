@@ -61,10 +61,14 @@ Linux GUI smoke tests use `tauri-driver` 2.0.5, `webkit2gtk-driver`, Xvfb and We
 
 ```bash
 cargo install tauri-driver --version 2.0.5 --locked
-bash desktop/tests/display-backends.sh desktop/target/release/rdpctl-gui
+cargo build --manifest-path desktop/Cargo.toml --locked -p rdpctl-gui
+bash desktop/tests/display-backends.sh desktop/target/debug/rdpctl-gui
 ```
 
-These tests use a temporary profile directory and a fake client to verify the
+These tests drive a debug build, following Tauri's WebDriver setup, with software
+rendering on the headless displays. CI separately compiles the production binary
+for packaging.
+The tests use a temporary profile directory and a fake client to verify the
 real GUI-to-Rust-to-process boundary without connecting to a remote host. They
 verify profile compatibility, monitor selection, exact launch arguments, safe
 text rendering, private files, and protection against duplicate overwrites.

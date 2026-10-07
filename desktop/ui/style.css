@@ -1,11 +1,12 @@
 :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101722; color: #e5edf8; }
 * { box-sizing: border-box; }
-body { margin: 0; }
+body { margin: 0; height: 100vh; display: flex; flex-direction: column; }
 header { display: flex; align-items: center; justify-content: space-between; padding: 28px 32px; border-bottom: 1px solid #2c3747; }
 .eyebrow { color: #86b5ed; font-size: 11px; font-weight: 700; letter-spacing: .16em; margin: 0 0 8px; }
 h1 { font-size: 28px; margin: 0; }
 h2 { font-size: 18px; margin: 0 0 14px; }
-main { display: grid; grid-template-columns: 1fr 300px; gap: 28px; padding: 28px 32px; }
+header, footer { flex-shrink: 0; }
+main { display: grid; grid-template-columns: 1fr 300px; gap: 28px; padding: 28px 32px; flex: 1; min-height: 0; overflow: auto; }
 aside { border-left: 1px solid #2c3747; padding-left: 28px; }
 .connection { background: #192433; border: 1px solid #324255; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
 .connection p { margin: 7px 0; overflow-wrap: anywhere; }
@@ -21,7 +22,7 @@ button { background: #25364c; border: 1px solid #425169; border-radius: 7px; col
 button.primary { background: #8dc1ff; color: #10213b; border-color: #8dc1ff; font-weight: 650; }
 button:disabled { opacity: .5; cursor: wait; }
 button:focus-visible, input:focus-visible { outline: 2px solid #9ccaff; outline-offset: 3px; }
-footer { padding: 0 32px 20px; }
+footer { padding: 4px 32px 12px; border-top: 1px solid #2c3747; }
 #status { font-size: 13px; color: #a6b5c9; }
 #status.error { color: #ffb7ac; }
 @media (max-width: 740px) { main { grid-template-columns: 1fr; } aside { border-left: 0; border-top: 1px solid #2c3747; padding: 24px 0 0; } }

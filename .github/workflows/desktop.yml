@@ -23,18 +23,36 @@ jobs:
       - name: Install desktop build and test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf pkg-config build-essential webkit2gtk-driver xvfb xauth weston gettext-base shellcheck
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf pkg-config build-essential webkit2gtk-driver xvfb xauth weston gettext-base shellcheck dbus-x11
           rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
           rustup show
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: rust-cache
+        with:
+          path: |
+            ~/.cargo/registry
+            desktop/target
+          key: ${{ runner.os }}-rdpctl-rust-1.98.1-${{ hashFiles('desktop/Cargo.lock') }}
       - name: Check and build desktop
         run: |
           make gui-check
           shellcheck scripts/package-gui.sh desktop/tests/display-backends.sh
+          cargo build --manifest-path desktop/Cargo.toml -p rdpctl-gui --locked
           make gui-build
+          mkdir -p output
+          cp desktop/target/release/rdpctl-gui output/rdpctl-gui
+      - name: Install GUI test driver
+        run: cargo install tauri-driver --version 2.0.5 --locked
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            desktop/target
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
       - name: Test actual GUI under X11 and Wayland
         run: |
-          cargo install tauri-driver --version 2.0.5 --locked
-          bash desktop/tests/display-backends.sh desktop/target/release/rdpctl-gui
+          bash desktop/tests/display-backends.sh desktop/target/debug/rdpctl-gui
       - name: Package desktop RPM, DEB and sources
         env:
           GOTOOLCHAIN: auto
