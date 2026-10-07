@@ -49,5 +49,5 @@ done
 sort -u -o "$bundle/LICENSES/SYSTEM-PACKAGES.txt" "$bundle/LICENSES/SYSTEM-PACKAGES.txt"
 # Ship matching source archives alongside redistributed system libraries.
 for source_package in "${!sources[@]}"; do
-  (cd "$root/.build/system-sources" && apt-get source --download-only "$source_package")
+  (cd "$root/.build/system-sources" && apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 source --download-only "$source_package")
 done

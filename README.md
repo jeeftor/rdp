@@ -98,6 +98,9 @@ The packager installs with its own required Go toolchain; this does not change
 the application's Go requirement in `go.mod`.
 The dependency installer uses `sudo`, enables Ubuntu source repositories, and
 installs build tools. Compilation runs as your user. Plain `make` prints help.
+The installer selects official Ubuntu HTTPS mirrors in place of the runner's
+mirror lists; package and matching-source downloads use bounded retries and
+connection timeouts.
 Source versions and SHA-256 checksums are pinned in
 `config/freerdp-version.env`. Generated files stay in `.build/` and `output/`.
 Move existing output aside before repeating packaging.
