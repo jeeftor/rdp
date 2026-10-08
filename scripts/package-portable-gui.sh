@@ -53,6 +53,11 @@ rm -rf .build/portable-extract/squashfs-root
 rm -rf "$PORTABLE_DIR/app"
 mv .build/portable-extract/squashfs-root "$PORTABLE_DIR/app"
 cp "${images[0]}" "output/$name.AppImage"
+# Extracted AppImages can have owner-only modes. Package files become root-owned,
+# so normalize this public runtime tree before installation by another user.
+find "$PORTABLE_DIR" -type d -exec chmod 0755 {} +
+find "$PORTABLE_DIR" -type f -perm /111 -exec chmod 0755 {} +
+find "$PORTABLE_DIR" -type f ! -perm /111 -exec chmod 0644 {} +
 cp -R "$PORTABLE_DIR/app/usr/share/licenses" .build/portable-sources/licenses
 cp -R .build/portable-system-sources .build/portable-sources/system-sources
 cp "output/rdpctl-gui-${PACKAGE_VERSION}-sources.tar.gz" ".build/portable-input/$client_sources" .build/portable-sources/

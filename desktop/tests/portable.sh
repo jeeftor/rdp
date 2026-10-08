@@ -63,6 +63,9 @@ RDPCTL_PORTABLE_TEST_APP="$portable/rdpctl" dbus-run-session -- xvfb-run -a env 
 sudo apt-get install -y ./.build/portable-input/freerdp-portable*.deb ./output/rdpctl-gui*.deb
 sudo apt-get install -y ./output/rdpctl-portable*.deb
 freerdp /version
+test -x /opt/rdpctl-portable/rdpctl
+test -x /opt/rdpctl-portable/app/AppRun
+test -x /opt/rdpctl-portable/app/usr/bin/rdpctl-gui
 test "$(dpkg-query -S /usr/bin/rdpctl-gui)" = 'rdpctl-portable: /usr/bin/rdpctl-gui'
 sudo apt-get remove -y rdpctl-portable
 test ! -e /opt/rdpctl-portable
