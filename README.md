@@ -85,7 +85,8 @@ Prereleases from `v0.1.0-rc.3` include separate `rdpctl-gui` RPM and DEB package
 Those smaller packages require host GTK/WebKit. For air-gapped use, choose
 the combined `rdpctl-portable` package described above.
 
-Run `./bin/rdpctl` in the archive, or `rdpctl` after package installation, to
+Run `./bin/rdpctl` in the client-only archive, or `rdpctl` after installing the
+client-only package, to
 manage connections interactively. Profiles contain hosts and usernames but no
 passwords. They live in `~/.config/rdpctl/connections`; generated desktop
 launchers live in `~/.local/share/applications`.
