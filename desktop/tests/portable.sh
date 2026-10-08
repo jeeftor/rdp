@@ -66,6 +66,7 @@ freerdp /version
 test -x /opt/rdpctl-portable/rdpctl
 test -x /opt/rdpctl-portable/app/AppRun
 test -x /opt/rdpctl-portable/app/usr/bin/rdpctl-gui
+dbus-run-session -- xvfb-run -a env -u WAYLAND_DISPLAY GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 bash desktop/tests/portable-production.sh /usr/bin/rdpctl-gui
 test "$(dpkg-query -S /usr/bin/rdpctl-gui)" = 'rdpctl-portable: /usr/bin/rdpctl-gui'
 sudo apt-get remove -y rdpctl-portable
 test ! -e /opt/rdpctl-portable
