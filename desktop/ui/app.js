@@ -3,6 +3,27 @@ const connections = document.querySelector('#connections');
 const form = document.querySelector('#profile-form');
 const tauri = window.__TAURI__;
 const sessionLogs = new Map();
+const videoSessions = new Map();
+// Preference order among modes the operator has confirmed with a usable desktop.
+const videoModes = [
+  ['auto', 'Automatic graphics (Wayland / X11)'],
+  ['x11-opengl', 'X11 · OpenGL'],
+  ['wayland-opengl', 'Wayland · OpenGL'],
+  ['x11-opengles2', 'X11 · OpenGL ES'],
+  ['wayland-opengles2', 'Wayland · OpenGL ES'],
+  ['x11-software', 'X11 · Software fallback'],
+];
+function videoSelect(value = 'auto') {
+  const select = document.createElement('select');
+  select.name = 'video_mode';
+  for (const [mode, label] of videoModes) {
+    const option = element('option', label);
+    option.value = mode;
+    select.append(option);
+  }
+  select.value = value;
+  return select;
+}
 
 function message(text, error = false) {
   status.textContent = text;
@@ -43,8 +64,9 @@ async function addConnectionActions(card, profile) {
     fields[name] = input;
     editor.append(field(label, input));
   }
-  editor.append(element('p', 'Graphics: Automatic by default. Tests Wayland and X11 and selects a working OpenGL renderer. Leave the override below unchecked for automatic mode.', 'hint'));
-  for (const [name, label] of [['fullscreen', 'Full screen'], ['multi_monitor', 'Use multiple monitors'], ['software_rendering', 'Force X11 software rendering']]) {
+  fields.video_mode = videoSelect(profile.video_mode || (profile.software_rendering ? 'x11-software' : 'auto'));
+  editor.append(field('Graphics mode', fields.video_mode), element('p', 'Automatic tests Wayland and X11. Select a specific mode to remember a working renderer.', 'hint'));
+  for (const [name, label] of [['fullscreen', 'Full screen'], ['multi_monitor', 'Use multiple monitors']]) {
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.name = name;
@@ -58,7 +80,7 @@ async function addConnectionActions(card, profile) {
   const detect = button('Detect displays for this connection', async () => {
     detect.disabled = true;
     try {
-      const monitors = await tauri.core.invoke('list_monitors', { softwareRendering: fields.software_rendering.checked });
+      const monitors = await tauri.core.invoke('list_monitors', { videoMode: fields.video_mode.value });
       const selected = fields.monitors.value.split(',').filter(Boolean);
       detected.replaceChildren();
       for (const monitor of monitors) {
@@ -80,7 +102,7 @@ async function addConnectionActions(card, profile) {
     } catch (error) { message(String(error), true); }
     finally { detect.disabled = false; }
   });
-  fields.software_rendering.addEventListener('change', () => detected.replaceChildren());
+  fields.video_mode.addEventListener('change', () => detected.replaceChildren());
   editor.append(detect, detected);
   const password = document.createElement('input');
   password.type = 'text';
@@ -147,7 +169,7 @@ async function addConnectionActions(card, profile) {
     const entered = password.value || null;
     if (!editor.reportValidity()) throw new Error('Complete the required connection fields.');
     const values = Object.fromEntries(Object.entries(fields).map(([name, input]) => [name, input.type === 'checkbox' ? input.checked : input.value]));
-    profile = await tauri.core.invoke('update_profile', { profile: { ...profile, ...values, certificate: policy.value, fingerprint: fingerprint.value } });
+    profile = await tauri.core.invoke('update_profile', { profile: { ...profile, ...values, software_rendering: fields.video_mode.value === 'x11-software', certificate: policy.value, fingerprint: fingerprint.value } });
     card.querySelector('h2').textContent = profile.name;
     card.querySelector('.host').textContent = profile.host;
     card.querySelector('.username').textContent = profile.user;
@@ -241,14 +263,85 @@ async function addConnectionActions(card, profile) {
   const connect = button('Connect', () => run(false), 'primary');
   const test = button('Test connection', () => run(true));
   const actions = element('div', '', 'actions');
-  actions.append(connect, test);
-  card.append(actions, options, result, commandLog);
+  const videoPanel = element('div', '', 'video-tests');
+  videoPanel.hidden = true;
+  videoPanel.append(element('p', 'Try a mode, check its desktop, then close that desktop before trying another. Mark Works only if you saw a usable desktop. Tests use your certificate policy, NLA and a simple window without saved monitor IDs. Confirmed OpenGL is preferred to OpenGL ES, then software.', 'hint'));
+  const working = new Set(profile.working_video_modes || []);
+  const trialButtons = [];
+  let running = false;
+  const videoStatus = element('p', '', 'hint');
+  function enableTrials(enabled) {
+    for (const tryButton of trialButtons) tryButton.disabled = !enabled;
+    connect.disabled = test.disabled = !enabled;
+  }
+  videoSessions.set(profile.id, () => {
+    running = false;
+    enableTrials(true);
+    videoStatus.textContent = 'Trial closed. Mark Works if its desktop displayed correctly; an exit code alone does not confirm that.';
+  });
+  for (const [mode, label] of videoModes.slice(1)) {
+    const row = element('div', '', 'video-trial');
+    const outcome = element('span', working.has(mode) ? 'Confirmed working' : 'Not confirmed', 'hint');
+    const remember = button('Works — remember best', async () => {
+      remember.disabled = true;
+      const previous = { mode: fields.video_mode.value, monitors: fields.monitors.value, confirmed: Array.from(working) };
+      try {
+        working.add(mode);
+        const best = videoModes.find(([candidate]) => working.has(candidate));
+        profile.working_video_modes = Array.from(working);
+        fields.video_mode.value = best[0];
+        fields.monitors.value = '';
+        detected.replaceChildren();
+        await applySettings();
+        outcome.textContent = 'Confirmed working';
+        videoStatus.textContent = `Remembered ${best[1]} for ${profile.name}. Detect displays again before selecting monitor IDs.`;
+        message(videoStatus.textContent);
+      } catch (error) {
+        if (!previous.confirmed.includes(mode)) working.delete(mode);
+        profile.working_video_modes = previous.confirmed;
+        fields.video_mode.value = previous.mode;
+        fields.monitors.value = previous.monitors;
+        message(String(error), true);
+      }
+      finally { remember.disabled = false; }
+    });
+    remember.disabled = true;
+    const tryButton = button('Try desktop', async () => {
+      if (running) return;
+      running = true;
+      enableTrials(false);
+      remember.disabled = true;
+      commandLog.open = true;
+      commandTitle.textContent = `Video test: ${label}`;
+      outputText.textContent = '';
+      try {
+        const entered = await applySettings();
+        const launched = await tauri.core.invoke('launch_profile', { id: profile.id, password: entered, videoMode: mode });
+        commandText.textContent = launched.command;
+        remember.disabled = false;
+        if (running) videoStatus.textContent = `Testing ${label}. Check the FreeRDP desktop, then close it. Your saved graphics mode has not changed.`;
+        message(`Video test: ${label}. Check the desktop and mark Works if usable.`);
+      } catch (error) {
+        running = false;
+        enableTrials(true);
+        outcome.textContent = String(error);
+        message(String(error), true);
+      }
+    });
+    trialButtons.push(tryButton);
+    row.append(element('strong', label), tryButton, remember, outcome);
+    videoPanel.append(row);
+  }
+  videoPanel.append(videoStatus);
+  const video = button('Test video options', () => { videoPanel.hidden = !videoPanel.hidden; });
+  actions.append(connect, test, video);
+  card.append(actions, videoPanel, options, result, commandLog);
 }
 
 function displaySettings(profile) {
   const settings = [profile.fullscreen ? 'Full screen' : 'Windowed', profile.multi_monitor ? 'Multiple monitors' : 'Single monitor'];
   if (profile.monitors) settings.push(`Monitors ${profile.monitors}`);
-  settings.push(profile.software_rendering ? 'Forced X11 software rendering' : 'Automatic graphics (Wayland / X11)');
+  settings.push(videoModes.find(([mode]) => mode === (profile.video_mode || (profile.software_rendering ? 'x11-software' : 'auto')))?.[1] || 'Automatic graphics');
   return settings.join(' · ');
 }
 
@@ -257,6 +350,7 @@ async function refresh() {
     const profiles = await tauri.core.invoke('list_profiles');
     connections.replaceChildren();
     sessionLogs.clear();
+    videoSessions.clear();
     if (!profiles.length) {
       connections.append(element('h2', 'Ready for your first connection'), element('p', 'Save a host and username to get started.', 'hint'));
     }
@@ -286,7 +380,7 @@ form.addEventListener('submit', async (event) => {
   try {
     const profile = await tauri.core.invoke('create_profile', { profile: {
       id: '', name: values.get('name'), host: values.get('host'), user: values.get('user'),
-      software_rendering: values.has('software_rendering'), fullscreen: values.has('fullscreen'), multi_monitor: values.has('multi_monitor'), monitors: values.getAll('monitor').join(','),
+      video_mode: values.get('video_mode'), software_rendering: values.get('video_mode') === 'x11-software', fullscreen: values.has('fullscreen'), multi_monitor: values.has('multi_monitor'), monitors: values.getAll('monitor').join(','),
       certificate: values.get('certificate'), fingerprint: values.get('fingerprint'),
     } });
     if (values.get('password') && values.has('remember_password')) {
@@ -314,7 +408,7 @@ document.querySelector('#detect-monitors').addEventListener('click', async (even
   const button = event.currentTarget;
   button.disabled = true;
   try {
-    const monitors = await tauri.core.invoke('list_monitors', { softwareRendering: form.elements.software_rendering.checked });
+    const monitors = await tauri.core.invoke('list_monitors', { videoMode: form.elements.video_mode.value });
     const list = document.querySelector('#monitors');
     list.replaceChildren();
     for (const monitor of monitors) {
@@ -343,10 +437,14 @@ if (tauri) {
       message('A saved monitor ID is invalid for this display backend. Detect displays in Edit connection, or clear Monitor IDs to use defaults.', true);
     }
     if (payload.line.includes('Window framebuffer support not available')) {
-      message('FreeRDP could not render the desktop. Try Force X11 software rendering in Edit connection, or check the host EGL/graphics drivers.', true);
+      message('FreeRDP could not render the desktop. Choose X11 · Software fallback in Edit connection, or check the host EGL/graphics drivers.', true);
     }
   });
   await tauri.event.listen('session-ended', ({ payload }) => {
+    if (payload.video_test) {
+      videoSessions.get(payload.id)?.(payload);
+      return;
+    }
     message(payload.success ? `${payload.name} closed.` : `${payload.name} exited with ${payload.code ?? 'no exit code'}. Use Test connection for diagnostics.`, !payload.success);
   });
   await refresh();

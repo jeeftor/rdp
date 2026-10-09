@@ -111,7 +111,7 @@ func TestSoftwareRenderingRequiresX11AndPassesExplicitEnvironment(t *testing.T) 
 	calls := 0
 	store.run = func(name string, args ...string) error {
 		calls++
-		if name != "env" || len(args) < 4 || args[0] != "SDL_VIDEODRIVER=x11" || args[1] != "SDL_RENDER_DRIVER=software" || args[2] != "SDL_FRAMEBUFFER_ACCELERATION=0" || args[3] != filepath.Join(root, "freerdp") {
+		if name != "env" || len(args) < 5 || args[0] != "SDL_VIDEO_DRIVER=x11" || args[1] != "SDL_VIDEODRIVER=x11" || args[2] != "SDL_RENDER_DRIVER=software" || args[3] != "SDL_FRAMEBUFFER_ACCELERATION=0" || args[4] != filepath.Join(root, "freerdp") {
 			t.Fatalf("command %s %v", name, args)
 		}
 		return nil
@@ -126,5 +126,45 @@ func TestSoftwareRenderingRequiresX11AndPassesExplicitEnvironment(t *testing.T) 
 	}
 	if calls != 1 {
 		t.Fatalf("launch calls %d", calls)
+	}
+}
+
+func TestSavedVideoModesAreUsedByTerminalLaunch(t *testing.T) {
+	root := t.TempDir()
+	store := testStore(root)
+	executable := filepath.Join(root, "bin", "rdpctl")
+	if err := os.MkdirAll(filepath.Dir(executable), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "freerdp"), []byte("fixture"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	store.executable = func() (string, error) { return executable, nil }
+	t.Setenv("DISPLAY", ":test")
+	t.Setenv("WAYLAND_DISPLAY", "test")
+	for _, mode := range []string{"x11-opengl", "wayland-opengl", "x11-opengles2", "wayland-opengles2", "x11-software"} {
+		t.Run(mode, func(t *testing.T) {
+			saved, err := store.Save(Profile{Name: mode, Host: "host", User: "user", VideoMode: mode, WorkingVideoModes: []string{mode}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := store.Load(saved.ID)
+			if err != nil || loaded.VideoMode != mode || len(loaded.WorkingVideoModes) != 1 {
+				t.Fatalf("saved mode: %+v %v", loaded, err)
+			}
+			called := false
+			store.run = func(name string, args ...string) error {
+				called = true
+				parts := strings.SplitN(mode, "-", 2)
+				joined := strings.Join(args, " ")
+				if name != "env" || !strings.Contains(joined, "SDL_VIDEO_DRIVER="+parts[0]) || !strings.Contains(joined, "SDL_RENDER_DRIVER="+parts[1]) {
+					t.Fatalf("%s %v", name, args)
+				}
+				return nil
+			}
+			if err := store.Launch(saved.ID); err != nil || !called {
+				t.Fatalf("launch: %v", err)
+			}
+		})
 	}
 }

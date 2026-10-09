@@ -157,3 +157,7 @@ and per-file checksums. The accompanying `*-sources.tar.gz` contains pinned
 upstream archives, Go dependency archives, and matching Ubuntu source packages
 for redistributed system libraries. Host glibc and graphics drivers are not
 redistributed wholesale.
+
+The desktop GUI can confirm and remember a working graphics mode using **Test
+video options**. See [desktop video trials](desktop/README.md#confirm-and-remember-desktop-video-modes)
+for the preference order and monitor detection workflow.

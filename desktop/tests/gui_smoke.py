@@ -133,7 +133,7 @@ def main() -> None:
             assert javascript("return document.querySelectorAll('.connection')[1].querySelector('[name=password]').type") == "text"
             assert javascript("return document.querySelectorAll('.connection')[1].querySelector('[name=password]').value") == "saved secret"
             assert javascript("return document.querySelectorAll('.connection')[1].querySelector('.display-settings').textContent.includes('Automatic graphics (Wayland / X11)')")
-            assert javascript("return document.querySelectorAll('.connection')[1].querySelector('[name=software_rendering]').checked") is False
+            assert javascript("return document.querySelectorAll('.connection')[1].querySelector('[name=video_mode]').value") == "auto"
             javascript("document.querySelectorAll('.connection')[1].querySelector('button').click()")
             expected_arguments = [
                 "/v:new.example.invalid", "/u:user", "/multimon", "/monitors:3", "/f", "/cert:deny", "/p:saved secret"
@@ -192,6 +192,31 @@ def main() -> None:
             wait_for(lambda: "/v:edited.example.invalid" in (root / "arguments").read_text(), "edited FreeRDP launch")
             wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.command').textContent.includes('/v:edited.example.invalid')"), "full GUI launch command")
             wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.session-output').textContent.includes('fake session output')"), "live FreeRDP log")
+            # Confirm real GUI trial commands and preference persistence with the fake client.
+            javascript("Array.from(document.querySelectorAll('.connection')[1].querySelectorAll('button')).find(button => button.textContent === 'Test video options').click()")
+            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[4].querySelector('button').click()")
+            wait_for(lambda: "/size:1280x720" in (root / "arguments").read_text(), "simple video trial arguments")
+            trial_arguments = (root / "arguments").read_text()
+            assert "/sec:nla" in trial_arguments
+            assert "/monitors:" not in trial_arguments and "/multimon" not in trial_arguments
+            wait_for(lambda: javascript("return !document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[4].querySelector('button').disabled"), "video trial exit")
+            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[4].querySelectorAll('button')[1].click()")
+            wait_for(lambda: json.loads(saved_path.read_text()).get("video_mode") == "x11-software", "confirmed software fallback")
+            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[0].querySelector('button').click()")
+            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.command').textContent.includes(\"SDL_RENDER_DRIVER='opengl'\")"), "OpenGL video trial")
+            wait_for(lambda: javascript("return !document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[0].querySelector('button').disabled"), "OpenGL trial exit")
+            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[0].querySelectorAll('button')[1].click()")
+            wait_for(lambda: json.loads(saved_path.read_text()).get("video_mode") == "x11-opengl", "OpenGL preference over software")
+            assert json.loads(saved_path.read_text()).get("monitors", "") == ""
+            javascript("document.querySelector('#refresh').click()")
+            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('[name=video_mode]').value === 'x11-opengl'"), "remembered mode after refresh")
+            assert set(json.loads(saved_path.read_text())["working_video_modes"]) == {"x11-opengl", "x11-software"}
+            javascript("Array.from(document.querySelectorAll('.connection')[1].querySelectorAll('button')).find(button => button.textContent === 'Test video options').click()")
+            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[4].querySelector('button').click()")
+            wait_for(lambda: javascript("return !document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[4].querySelector('button').disabled"), "repeated software trial exit")
+            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[4].querySelectorAll('button')[1].click()")
+            wait_for(lambda: javascript("return document.querySelector('#status').textContent.includes('Remembered X11 · OpenGL')"), "software cannot downgrade confirmed OpenGL")
+            assert json.loads(saved_path.read_text())["video_mode"] == "x11-opengl"
             original = saved_path.read_bytes()
             javascript("""
               const form = document.querySelector('#profile-form');

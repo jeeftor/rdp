@@ -16,16 +16,22 @@ pub(crate) fn validate_password(password: &str) -> Result<(), String> {
 fn copyable_command(command: &Command, arguments: &[String]) -> String {
     let quote = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
     let mut copyable = Vec::new();
-    for (name, value) in command.get_envs() {
-        if let Some(value) = value {
-            if copyable.is_empty() {
-                copyable.push("env".into());
+    if command.get_envs().next().is_some() {
+        copyable.push("env".into());
+        for (name, value) in command.get_envs() {
+            if value.is_none() {
+                copyable.push("-u".into());
+                copyable.push(quote(&name.to_string_lossy()));
             }
-            copyable.push(format!(
-                "{}={}",
-                name.to_string_lossy(),
-                quote(&value.to_string_lossy())
-            ));
+        }
+        for (name, value) in command.get_envs() {
+            if let Some(value) = value {
+                copyable.push(format!(
+                    "{}={}",
+                    name.to_string_lossy(),
+                    quote(&value.to_string_lossy())
+                ));
+            }
         }
     }
     copyable.push(quote(&command.get_program().to_string_lossy()));
@@ -378,6 +384,8 @@ mod tests {
             user: "user".into(),
             fullscreen: true,
             software_rendering: false,
+            video_mode: crate::VideoMode::Auto,
+            working_video_modes: vec![],
             multi_monitor: true,
             monitors: "1".into(),
             certificate: CertificatePolicy::Ignore,

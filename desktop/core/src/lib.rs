@@ -25,6 +25,32 @@ pub enum CertificatePolicy {
     Ignore,
 }
 
+/// The saved renderer selected by automatic detection or a confirmed desktop trial.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum VideoMode {
+    #[default]
+    Auto,
+    X11Opengl,
+    WaylandOpengl,
+    X11Opengles2,
+    WaylandOpengles2,
+    X11Software,
+}
+
+impl VideoMode {
+    fn settings(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Self::Auto => None,
+            Self::X11Opengl => Some(("x11", "opengl")),
+            Self::WaylandOpengl => Some(("wayland", "opengl")),
+            Self::X11Opengles2 => Some(("x11", "opengles2")),
+            Self::WaylandOpengles2 => Some(("wayland", "opengles2")),
+            Self::X11Software => Some(("x11", "software")),
+        }
+    }
+}
+
 /// A connection using the same password-free format as the Go terminal app.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Profile {
@@ -37,6 +63,10 @@ pub struct Profile {
     pub fullscreen: bool,
     #[serde(default)]
     pub software_rendering: bool,
+    #[serde(default)]
+    pub video_mode: VideoMode,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub working_video_modes: Vec<VideoMode>,
     #[serde(default)]
     pub multi_monitor: bool,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -63,6 +93,11 @@ pub fn slug(value: &str) -> String {
 impl Profile {
     /// Normalize user input and reject invalid connection settings.
     pub fn validate(mut self) -> Result<Self, String> {
+        // Retain the software override in existing JSON profiles.
+        if self.video_mode == VideoMode::Auto && self.software_rendering {
+            self.video_mode = VideoMode::X11Software;
+        }
+        self.software_rendering = self.video_mode == VideoMode::X11Software;
         self.name = self.name.trim().to_owned();
         self.host = self.host.trim().to_owned();
         self.user = self.user.trim().to_owned();
@@ -319,17 +354,30 @@ impl Store {
 fn configure_rendering(
     command: &mut Command,
     client: &Path,
-    software_rendering: bool,
+    video_mode: VideoMode,
 ) -> Result<(), String> {
-    if software_rendering {
-        if std::env::var_os("DISPLAY").is_none_or(|value| value.is_empty()) {
-            return Err("X11 software rendering requires DISPLAY. Launch from an X11 desktop or a Wayland desktop with XWayland enabled.".into());
+    if let Some((backend, renderer)) = video_mode.settings() {
+        let display = if backend == "x11" {
+            "DISPLAY"
+        } else {
+            "WAYLAND_DISPLAY"
+        };
+        if std::env::var_os(display).is_none_or(|value| value.is_empty()) {
+            return Err(format!(
+                "{backend} rendering requires {display}. Launch from your desktop session."
+            ));
         }
         command
-            .env("SDL_VIDEO_DRIVER", "x11")
-            .env("SDL_VIDEODRIVER", "x11")
-            .env("SDL_RENDER_DRIVER", "software")
-            .env("SDL_FRAMEBUFFER_ACCELERATION", "0");
+            .env("SDL_VIDEO_DRIVER", backend)
+            .env("SDL_VIDEODRIVER", backend)
+            .env("SDL_RENDER_DRIVER", renderer);
+        if renderer == "software" {
+            command.env("SDL_FRAMEBUFFER_ACCELERATION", "0");
+        } else {
+            command
+                .env_remove("SDL_FRAMEBUFFER_ACCELERATION")
+                .env_remove("LIBGL_ALWAYS_SOFTWARE");
+        }
     } else if std::env::var_os("SDL_VIDEO_DRIVER").is_none_or(|v| v.is_empty())
         && std::env::var_os("SDL_VIDEODRIVER").is_none_or(|v| v.is_empty())
     {
@@ -373,14 +421,25 @@ pub fn launch(
     profile: Profile,
     client: &Path,
     password: Option<&str>,
+    video_test: Option<VideoMode>,
 ) -> Result<(Child, String), String> {
-    let profile = profile.validate()?;
+    let mut profile = profile.validate()?;
+    if let Some(mode) = video_test {
+        profile.video_mode = mode;
+        profile.fullscreen = false;
+        profile.multi_monitor = false;
+        profile.monitors.clear();
+    }
     let mut command = Command::new(client);
-    configure_rendering(&mut command, client, profile.software_rendering)?;
+    configure_rendering(&mut command, client, profile.video_mode)?;
     command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    connection::spawn(&mut command, profile.arguments(), password)
+    let mut arguments = profile.arguments();
+    if video_test.is_some() {
+        arguments.extend(["/size:1280x720", "/bpp:32", "/sec:nla"].map(str::to_owned));
+    }
+    connection::spawn(&mut command, arguments, password)
 }
 
 /// Accept a SHA-256 fingerprint in compact or colon-separated form.
@@ -428,9 +487,9 @@ pub fn parse_monitors(output: &str) -> Result<Vec<Monitor>, String> {
 }
 
 /// Ask the installed client for its current Wayland or X11 displays.
-pub fn list_monitors(client: &Path, software_rendering: bool) -> Result<Vec<Monitor>, String> {
+pub fn list_monitors(client: &Path, video_mode: VideoMode) -> Result<Vec<Monitor>, String> {
     let mut command = Command::new(client);
-    configure_rendering(&mut command, client, software_rendering)?;
+    configure_rendering(&mut command, client, video_mode)?;
     let output = command
         .arg("/list:monitor")
         .output()
@@ -457,6 +516,8 @@ mod tests {
             user: "DOMAIN\\user".into(),
             fullscreen: true,
             software_rendering: false,
+            video_mode: VideoMode::Auto,
+            working_video_modes: vec![],
             multi_monitor: true,
             monitors: "0,1".into(),
             certificate: CertificatePolicy::Verify,
@@ -478,16 +539,77 @@ mod tests {
         fs::write(&client, "#!/bin/sh\ntest \"$SDL_VIDEO_DRIVER/$SDL_RENDER_DRIVER\" = x11/opengl || exit 1\nprintf 'listing 1 monitors:\\n [1] [Monitor] 1920x1080 +0+0\\n'\n").unwrap();
         fs::set_permissions(&client, fs::Permissions::from_mode(0o755)).unwrap();
         let mut command = Command::new(&client);
-        configure_rendering(&mut command, &client, false).unwrap();
+        configure_rendering(&mut command, &client, VideoMode::Auto).unwrap();
         let env: Vec<_> = command.get_envs().collect();
         assert!(env.iter().any(
             |(key, value)| *key == "SDL_RENDER_DRIVER" && value.is_some_and(|v| v == "opengl")
         ));
-        assert_eq!(list_monitors(&client, false).unwrap()[0].id, 1);
+        assert_eq!(list_monitors(&client, VideoMode::Auto).unwrap()[0].id, 1);
         fs::write(&probe, "#!/bin/sh\necho 'GPU unavailable' >&2\nexit 1\n").unwrap();
-        assert!(configure_rendering(&mut command, &client, false)
+        assert!(configure_rendering(&mut command, &client, VideoMode::Auto)
             .unwrap_err()
             .contains("GPU unavailable"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saves_renderer_and_trials_do_not_use_saved_monitor_settings() {
+        let _guard = PROCESS_TEST_LOCK.lock().unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let client = directory.path().join("client");
+        fs::write(&client, "#!/bin/sh\nprintf 'mode=%s/%s legacy=%s\\n' \"$SDL_VIDEO_DRIVER\" \"$SDL_RENDER_DRIVER\" \"$SDL_VIDEODRIVER\"\nif [ \"$1\" = /list:monitor ]; then printf '[1] [display] 1280x720 +0+0\\n'; else printf '%s\\n' \"$@\"; fi\n").unwrap();
+        fs::set_permissions(&client, fs::Permissions::from_mode(0o700)).unwrap();
+        let previous_x11 = std::env::var_os("DISPLAY");
+        let previous_wayland = std::env::var_os("WAYLAND_DISPLAY");
+        std::env::set_var("DISPLAY", ":test");
+        std::env::set_var("WAYLAND_DISPLAY", "test");
+        let store = Store::new(directory.path().join("profiles"));
+        let mut saved = store.create(profile()).unwrap();
+        for mode in [
+            VideoMode::X11Opengl,
+            VideoMode::WaylandOpengl,
+            VideoMode::X11Opengles2,
+            VideoMode::WaylandOpengles2,
+            VideoMode::X11Software,
+        ] {
+            saved.video_mode = mode;
+            saved.working_video_modes = vec![mode];
+            saved = store.update(saved).unwrap();
+            assert_eq!(store.load(&saved.id).unwrap(), saved);
+            let (child, command) = launch(saved.clone(), &client, None, Some(mode)).unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(output.status.success());
+            let output = String::from_utf8(output.stdout).unwrap();
+            let (backend, renderer) = mode.settings().unwrap();
+            let json = serde_json::to_value(&saved).unwrap();
+            assert_eq!(json["video_mode"], format!("{backend}-{renderer}"));
+            assert!(output.contains(&format!("mode={backend}/{renderer} legacy={backend}")));
+            assert!(output.contains("/size:1280x720") && output.contains("/sec:nla"));
+            assert!(
+                !output.contains("/monitors:")
+                    && !output.contains("/multimon")
+                    && !output.lines().any(|line| line == "/f")
+            );
+            assert!(command.contains(&format!("SDL_RENDER_DRIVER='{renderer}'")));
+            assert_eq!(list_monitors(&client, mode).unwrap()[0].id, 1);
+            let replay = Command::new("sh").args(["-c", &command]).output().unwrap();
+            assert!(replay.status.success());
+            assert_eq!(replay.stdout, output.as_bytes());
+        }
+        saved.video_mode = VideoMode::Auto;
+        saved.software_rendering = true;
+        assert_eq!(saved.validate().unwrap().video_mode, VideoMode::X11Software);
+        for (name, value) in [
+            ("DISPLAY", previous_x11),
+            ("WAYLAND_DISPLAY", previous_wayland),
+        ] {
+            if let Some(value) = value {
+                std::env::set_var(name, value);
+            } else {
+                std::env::remove_var(name);
+            }
+        }
     }
 
     #[test]
@@ -662,7 +784,7 @@ mod tests {
         )
         .unwrap();
         fs::set_permissions(&client, fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(launch(profile(), &client, None)
+        assert!(launch(profile(), &client, None, None)
             .unwrap()
             .0
             .wait()

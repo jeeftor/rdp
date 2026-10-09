@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use rdpctl_core::{Profile, Store};
+use rdpctl_core::{Profile, Store, VideoMode};
 use serde::Serialize;
 use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
@@ -22,12 +22,10 @@ fn client_path() -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-async fn list_monitors(
-    software_rendering: Option<bool>,
-) -> Result<Vec<rdpctl_core::Monitor>, String> {
+async fn list_monitors(video_mode: Option<VideoMode>) -> Result<Vec<rdpctl_core::Monitor>, String> {
     let client = client_path()?;
     tauri::async_runtime::spawn_blocking(move || {
-        rdpctl_core::list_monitors(&client, software_rendering.unwrap_or(false))
+        rdpctl_core::list_monitors(&client, video_mode.unwrap_or_default())
     })
     .await
     .map_err(|error| error.to_string())?
@@ -118,6 +116,8 @@ fn relay_log(app: tauri::AppHandle, id: String, output: impl Read + Send + 'stat
 
 #[derive(Clone, Serialize)]
 struct SessionEnded {
+    id: String,
+    video_test: bool,
     name: String,
     pid: u32,
     success: bool,
@@ -129,6 +129,7 @@ fn launch_profile(
     app: tauri::AppHandle,
     id: String,
     password: Option<String>,
+    video_mode: Option<VideoMode>,
 ) -> Result<LaunchResult, String> {
     let store = Store::from_environment()?;
     let profile = store.load(&id)?;
@@ -139,17 +140,20 @@ fn launch_profile(
     // Only the local environment can override the client; the webview supplies an ID.
     let client = client_path()?;
     let name = profile.name.clone();
-    let (mut child, command) = rdpctl_core::launch(profile, &client, password.as_deref())?;
+    let (mut child, command) =
+        rdpctl_core::launch(profile, &client, password.as_deref(), video_mode)?;
     if let Some(output) = child.stdout.take() {
         relay_log(app.clone(), id.clone(), output);
     }
     if let Some(output) = child.stderr.take() {
-        relay_log(app.clone(), id, output);
+        relay_log(app.clone(), id.clone(), output);
     }
     let pid = child.id();
     std::thread::spawn(move || {
         let status = child.wait();
         let event = SessionEnded {
+            id,
+            video_test: video_mode.is_some(),
             name,
             pid,
             success: status.as_ref().is_ok_and(|status| status.success()),

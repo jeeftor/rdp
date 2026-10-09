@@ -114,7 +114,7 @@ to select current IDs. Bundles installed before this feature keep their existing
 behavior until updated.
 
 If GPU renderer creation fails and you see `Window framebuffer support not
-available`, try **Force X11 software rendering** in **Edit connection**. It uses
+available`, choose **X11 · Software fallback** under **Graphics mode** in **Edit connection**. It uses
 `SDL_VIDEODRIVER=x11 SDL_RENDER_DRIVER=software SDL_FRAMEBUFFER_ACCELERATION=0`,
 requires a working `DISPLAY`
 (Xorg or XWayland), and leaves the default native backend unchanged otherwise.
@@ -193,8 +193,26 @@ verify profile compatibility, monitor selection, exact launch arguments, safe
 text rendering, private files, plaintext password storage, authentication-test
 results, explicit certificate backup and protection against duplicate overwrites.
 
-The connection cards show **Automatic graphics (Wayland / X11)** unless you
-explicitly enable **Force X11 software rendering**. Leave this override unchecked
-for automatic detection. Edit and log disclosure controls have bordered button
-styling and keyboard focus indicators. New and saved passwords are visible as
-plaintext in their fields, copyable commands, and diagnostic output.
+The connection cards show the selected graphics mode. Edit and log disclosure
+controls have bordered button styling and keyboard focus indicators. New and
+saved passwords are visible as plaintext in their fields, copyable commands,
+and diagnostic output.
+
+## Confirm and remember desktop video modes
+
+Use **Test video options** on a saved connection to try X11 or Wayland with
+OpenGL/OpenGL ES, or X11 software rendering. **Try desktop** opens a real
+1280×720 NLA desktop using your credentials and certificate policy. Saved monitor
+IDs, fullscreen and multi-monitor settings are omitted only for the trial.
+Close its desktop before starting the next trial. Full commands and output are
+available in the connection log.
+
+Mark **Works — remember best** only when you saw a usable desktop. The GUI saves
+confirmed modes in the JSON profile and selects the first confirmed mode in this
+order: X11 OpenGL, Wayland OpenGL, X11 OpenGL ES, Wayland OpenGL ES, X11 software.
+Confirmations survive restarting the GUI. This is a preference order, not a GPU
+benchmark; OpenGL can still use a CPU driver. Confirmation clears saved monitor
+IDs: detect displays again for the chosen mode. Normal Connect and display
+detection use the saved choice. **Graphics mode** also lets you select a mode
+manually or return to automatic detection. Existing software-override profiles
+remain readable. Renderer trials do not change your certificate policy.

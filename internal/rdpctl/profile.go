@@ -17,14 +17,16 @@ const managedLauncherKey = "X-RDPCTL-Managed=true"
 
 // Profile is a password-free FreeRDP connection definition.
 type Profile struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	Host              string `json:"host"`
-	User              string `json:"user"`
-	Fullscreen        bool   `json:"fullscreen"`
-	SoftwareRendering bool   `json:"software_rendering,omitempty"`
-	MultiMonitor      bool   `json:"multi_monitor"`
-	Monitors          string `json:"monitors,omitempty"`
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Host              string   `json:"host"`
+	User              string   `json:"user"`
+	Fullscreen        bool     `json:"fullscreen"`
+	SoftwareRendering bool     `json:"software_rendering,omitempty"`
+	VideoMode         string   `json:"video_mode,omitempty"`
+	WorkingVideoModes []string `json:"working_video_modes,omitempty"`
+	MultiMonitor      bool     `json:"multi_monitor"`
+	Monitors          string   `json:"monitors,omitempty"`
 }
 
 // Store manages profiles below the current user's XDG directories.
@@ -217,11 +219,44 @@ func (s *Store) Launch(id string) error {
 	if profile.Fullscreen {
 		args = append(args, "/f")
 	}
-	if profile.SoftwareRendering {
-		if os.Getenv("DISPLAY") == "" {
-			return errors.New("X11 software rendering requires DISPLAY; use an X11 desktop or enable XWayland")
+	mode := profile.VideoMode
+	if (mode == "" || mode == "auto") && profile.SoftwareRendering {
+		mode = "x11-software"
+	}
+	backend, renderer := "", ""
+	switch mode {
+	case "", "auto":
+	case "x11-opengl":
+		backend, renderer = "x11", "opengl"
+	case "wayland-opengl":
+		backend, renderer = "wayland", "opengl"
+	case "x11-opengles2":
+		backend, renderer = "x11", "opengles2"
+	case "wayland-opengles2":
+		backend, renderer = "wayland", "opengles2"
+	case "x11-software":
+		backend, renderer = "x11", "software"
+	default:
+		return fmt.Errorf("unknown saved graphics mode %q", mode)
+	}
+	if backend != "" {
+		display := "DISPLAY"
+		if backend == "wayland" {
+			display = "WAYLAND_DISPLAY"
 		}
-		return s.run("env", append([]string{"SDL_VIDEODRIVER=x11", "SDL_RENDER_DRIVER=software", "SDL_FRAMEBUFFER_ACCELERATION=0", client}, args...)...)
+		if os.Getenv(display) == "" {
+			return fmt.Errorf("%s rendering requires %s; launch from your desktop session", backend, display)
+		}
+		environment := []string{}
+		if renderer != "software" {
+			environment = append(environment, "-u", "SDL_FRAMEBUFFER_ACCELERATION", "-u", "LIBGL_ALWAYS_SOFTWARE")
+		}
+		environment = append(environment, "SDL_VIDEO_DRIVER="+backend, "SDL_VIDEODRIVER="+backend, "SDL_RENDER_DRIVER="+renderer)
+		if renderer == "software" {
+			environment = append(environment, "SDL_FRAMEBUFFER_ACCELERATION=0")
+		}
+		environment = append(environment, client)
+		return s.run("env", append(environment, args...)...)
 	}
 	return s.run(client, args...)
 }

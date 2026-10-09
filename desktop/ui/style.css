@@ -38,3 +38,7 @@ footer { padding: 4px 32px 12px; border-top: 1px solid #2c3747; }
 #status { font-size: 13px; color: #a6b5c9; }
 #status.error { color: #ffb7ac; }
 @media (max-width: 740px) { main { grid-template-columns: 1fr; } aside { border-left: 0; border-top: 1px solid #2c3747; padding: 24px 0 0; } }
+
+.video-tests { margin-top: 16px; padding: 16px; border: 1px solid #425169; border-radius: 7px; }
+.video-trial { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.video-trial strong { min-width: 150px; font-size: 13px; }

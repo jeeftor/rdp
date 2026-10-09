@@ -26,8 +26,15 @@
           <option value="ignore">Ignore certificate checks</option>
         </select></label>
         <label id="new-fingerprint" hidden>SHA-256 fingerprint<input name="fingerprint" maxlength="95"></label>
-        <p class="hint">Graphics: Automatic by default. Tests Wayland and X11 and selects a working OpenGL renderer. Leave the override below unchecked for automatic mode.</p>
-        <label class="check"><input type="checkbox" name="software_rendering"> Force X11 software rendering</label>
+        <label>Graphics mode<select name="video_mode">
+          <option value="auto">Automatic graphics (Wayland / X11)</option>
+          <option value="x11-opengl">X11 · OpenGL</option>
+          <option value="wayland-opengl">Wayland · OpenGL</option>
+          <option value="x11-opengles2">X11 · OpenGL ES</option>
+          <option value="wayland-opengles2">Wayland · OpenGL ES</option>
+          <option value="x11-software">X11 · Software fallback</option>
+        </select></label>
+        <p class="hint">Automatic selects a working renderer. Use Test video options on a saved connection to confirm and remember a desktop mode.</p>
         <label class="check"><input type="checkbox" name="fullscreen"> Full screen</label>
         <label class="check"><input type="checkbox" name="multi_monitor"> Use multiple monitors</label>
         <fieldset><legend>Monitors <span>(optional)</span></legend><div id="monitors"><p class="hint">Use the default monitors, or detect your displays.</p></div><button id="detect-monitors" type="button">Detect displays</button></fieldset>
