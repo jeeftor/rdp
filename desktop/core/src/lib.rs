@@ -6,6 +6,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 
+// Process tests write executable fixtures. Serializing them prevents another
+// concurrent fork from briefly inheriting a writable descriptor on Linux.
+#[cfg(test)]
+static PROCESS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 mod connection;
 pub use connection::{test_connection, TestResult};
 
@@ -576,6 +581,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn launches_a_real_process_with_the_saved_arguments() {
+        let _guard = PROCESS_TEST_LOCK.lock().unwrap();
         use std::os::unix::fs::PermissionsExt;
         let temporary = tempfile::tempdir().unwrap();
         let client = temporary.path().join("client");

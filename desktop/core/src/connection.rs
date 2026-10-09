@@ -335,6 +335,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn logged_command_can_be_run_with_spaces_and_quoted_passwords() {
+        let _guard = crate::PROCESS_TEST_LOCK.lock().unwrap();
         use std::os::unix::fs::PermissionsExt;
         let directory = tempfile::tempdir().unwrap();
         let client = directory.path().join("client's wrapper");
@@ -357,6 +358,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn tests_credentials_through_stdin_and_redacts_output_with_a_deadline() {
+        let _guard = crate::PROCESS_TEST_LOCK.lock().unwrap();
         use std::os::unix::fs::PermissionsExt;
         let directory = tempfile::tempdir().unwrap();
         let client = directory.path().join("client");
