@@ -20,19 +20,44 @@ version="${PACKAGE_VERSION:-0.1.0-dev}"
 portable="$root/.build/rdpctl-portable-x86_64-$version"
 client="$portable/app/usr/share/rdpctl/freerdp/freerdp"
 "$client" /version
-rpm -qp --requires output/rdpctl-portable*.rpm
-if rpm -qp --requires output/rdpctl-portable*.rpm | rg 'webkit|gtk3'; then exit 1; fi
+test "$(rpm -qp --queryformat '%{NAME}' output/rdp-*.rpm)" = rdp
+rpm -qp --requires output/rdp-*.rpm
+if rpm -qp --requires output/rdp-*.rpm | rg 'webkit|gtk3'; then exit 1; fi
 if dpkg-deb -f output/rdpctl-portable*.deb Depends | rg 'webkit|libgtk'; then exit 1; fi
 
 # Exercise the exact upgrade from the old two packages in an isolated RPM database.
 mkdir -p .build/rpm-upgrade
 rpm --root "$root/.build/rpm-upgrade" --initdb
 rpm --root "$root/.build/rpm-upgrade" --nodeps -i .build/portable-input/freerdp-portable*.rpm output/rdpctl-gui*.rpm
-rpm --root "$root/.build/rpm-upgrade" --nodeps -U output/rdpctl-portable*.rpm
-rpm --root "$root/.build/rpm-upgrade" -q rdpctl-portable
+rpm --root "$root/.build/rpm-upgrade" --nodeps -U output/rdp-*.rpm
+rpm --root "$root/.build/rpm-upgrade" -q rdp
+if rpm --root "$root/.build/rpm-upgrade" -q rdpctl-portable; then exit 1; fi
 if rpm --root "$root/.build/rpm-upgrade" -q freerdp-portable; then exit 1; fi
 if rpm --root "$root/.build/rpm-upgrade" -q rdpctl-gui; then exit 1; fi
 rpm --root "$root/.build/rpm-upgrade" -qf /usr/bin/freerdp /usr/bin/rdpctl-gui
+
+# Check replacement of the previous combined package, including overlapping files.
+cat > .build/previous-portable-nfpm.yaml <<'CONFIG'
+name: rdpctl-portable
+arch: amd64
+platform: linux
+version: 0.1.0-rc.5
+maintainer: jeeftor
+description: Previous combined package upgrade fixture
+contents:
+  - src: .build/portable-launchers/rdpctl-gui
+    dst: /usr/bin/rdpctl-gui
+  - src: .build/portable-launchers/freerdp
+    dst: /usr/bin/freerdp
+CONFIG
+nfpm package --config .build/previous-portable-nfpm.yaml --packager rpm --target .build/previous-portable.rpm
+mkdir -p .build/rpm-rename
+rpm --root "$root/.build/rpm-rename" --initdb
+rpm --root "$root/.build/rpm-rename" --nodeps -i .build/previous-portable.rpm
+rpm --root "$root/.build/rpm-rename" --nodeps -U output/rdp-*.rpm
+rpm --root "$root/.build/rpm-rename" -q rdp
+if rpm --root "$root/.build/rpm-rename" -q rdpctl-portable; then exit 1; fi
+test "$(rpm --root "$root/.build/rpm-rename" --queryformat '%{NAME}\n' -qf /usr/bin/freerdp /usr/bin/rdpctl-gui)" = $'rdp\nrdp'
 
 # WebDriver needs a debug binary. Keep the packaged production binary intact.
 mkdir -p .build/portable-test

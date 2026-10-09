@@ -34,14 +34,16 @@ The frontend cannot supply an executable path or run arbitrary shell commands.
 
 ## Packages and testing
 
-The recommended air-gap package is **rdpctl-portable**: one RPM or DEB installs
+The recommended air-gap package is the **rdp** RPM or **rdpctl-portable** DEB.
+One package installs
 FreeRDP, the GUI, GTK3, WebKitGTK 4.1, their helper processes and resources.
-It replaces the older `freerdp-portable` and `rdpctl-gui` packages. Open **rdpctl**
+It replaces the older `freerdp-portable` and `rdpctl-gui` packages; the RPM
+also replaces the previous `rdpctl-portable` RPM. Open **rdpctl**
 from the application menu after installation. Profiles remain in your home directory.
 
 ```bash
 # RHEL 10: DNF handles replacement of the older packages.
-sudo dnf --disablerepo='*' install ./rdpctl-portable-*.x86_64.rpm
+sudo dnf --disablerepo='*' install ./rdp-*.x86_64.rpm
 # Ubuntu 24.04:
 sudo apt install ./rdpctl-portable_*_amd64.deb
 ```

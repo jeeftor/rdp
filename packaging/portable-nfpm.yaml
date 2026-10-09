@@ -29,6 +29,18 @@ contents:
     dst: /usr/share/icons/hicolor/128x128/apps/rdpctl-gui.png
 overrides:
   rpm:
+    provides:
+      - freerdp-portable
+      - rdpctl-gui
+      - rdpctl-portable
+    replaces:
+      - freerdp-portable
+      - rdpctl-gui
+      - rdpctl-portable
+    conflicts:
+      - freerdp-portable
+      - rdpctl-gui
+      - rdpctl-portable
     depends:
       - glibc >= 2.39
       - bash

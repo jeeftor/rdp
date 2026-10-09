@@ -97,5 +97,6 @@ jobs:
           path: |
             output/rdpctl-gui*
             output/rdpctl-portable*
+            output/rdp-*.rpm
             output/GUI-SHA256SUMS
             output/desktop-tests/

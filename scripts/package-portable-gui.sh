@@ -70,8 +70,10 @@ chmod 0755 .build/portable-launchers/*
 # envsubst needs literal variable names.
 # shellcheck disable=SC2016
 envsubst '${PACKAGE_VERSION} ${PORTABLE_DIR}' < packaging/portable-nfpm.yaml > .build/portable-nfpm.yaml
-nfpm package --config .build/portable-nfpm.yaml --packager rpm --target "output/rdpctl-portable-${PACKAGE_VERSION}.x86_64.rpm"
+# Rename only the RPM; retain the DEB identity and installed runtime paths.
+sed 's/^name: rdpctl-portable$/name: rdp/' .build/portable-nfpm.yaml > .build/portable-rpm-nfpm.yaml
+nfpm package --config .build/portable-rpm-nfpm.yaml --packager rpm --target "output/rdp-${PACKAGE_VERSION}.x86_64.rpm"
 nfpm package --config .build/portable-nfpm.yaml --packager deb --target "output/rdpctl-portable_${PACKAGE_VERSION}_amd64.deb"
 tar -czf "output/$name.tar.gz" -C .build "$name"
 tar -czf "output/rdpctl-portable-${PACKAGE_VERSION}-sources.tar.gz" -C .build portable-sources
-(cd output && sha256sum rdpctl-gui*.rpm rdpctl-gui*.deb rdpctl-gui*-sources.tar.gz rdpctl-portable*.rpm rdpctl-portable*.deb rdpctl-portable*.tar.gz rdpctl-portable*.AppImage > GUI-SHA256SUMS)
+(cd output && sha256sum rdpctl-gui*.rpm rdpctl-gui*.deb rdpctl-gui*-sources.tar.gz rdp-*.rpm rdpctl-portable*.deb rdpctl-portable*.tar.gz rdpctl-portable*.AppImage > GUI-SHA256SUMS)
