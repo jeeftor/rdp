@@ -26,7 +26,8 @@ def request(method: str, path: str, payload: dict[str, Any] | None = None) -> An
             result: dict[str, Any] = json.load(response)
     except HTTPError as error:
         details = error.read(4096).decode(errors="replace")
-        raise RuntimeError(f"WebDriver HTTP {error.code}: {details}") from error
+        error.msg = f"{error.msg}: {details}"
+        raise
     value: Any = result.get("value")
     if isinstance(value, dict) and "error" in value:
         raise RuntimeError(str(value))
