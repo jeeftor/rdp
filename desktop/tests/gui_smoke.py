@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 from typing import Any
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
@@ -21,8 +21,12 @@ def request(method: str, path: str, payload: dict[str, Any] | None = None) -> An
     body = json.dumps(payload).encode() if payload is not None else None
     message = Request(f"http://127.0.0.1:4444{path}", data=body, method=method,
                       headers={"Content-Type": "application/json"})
-    with urlopen(message, timeout=30) as response:
-        result: dict[str, Any] = json.load(response)
+    try:
+        with urlopen(message, timeout=30) as response:
+            result: dict[str, Any] = json.load(response)
+    except HTTPError as error:
+        details = error.read(4096).decode(errors="replace")
+        raise RuntimeError(f"WebDriver HTTP {error.code}: {details}") from error
     value: Any = result.get("value")
     if isinstance(value, dict) and "error" in value:
         raise RuntimeError(str(value))
@@ -216,8 +220,8 @@ def main() -> None:
             javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[window.videoHigher].querySelectorAll('button')[1].click()")
             wait_for(lambda: json.loads(saved_path.read_text()).get("video_mode") == higher_mode, "OpenGL preference over lower-priority renderer")
             assert json.loads(saved_path.read_text()).get("monitors", "") == ""
-            javascript("document.querySelector('#refresh').click()")
-            wait_for(lambda: javascript(f"return document.querySelectorAll('.connection')[1]?.querySelector('[name=video_mode]')?.value === {json.dumps(higher_mode)}"), "remembered mode after refresh")
+            javascript("document.querySelectorAll('.connection')[1].dataset.refreshMarker = 'before'; document.querySelector('#refresh').click()")
+            wait_for(lambda: javascript(f"return document.querySelectorAll('.connection')[1]?.dataset.refreshMarker !== 'before' && document.querySelectorAll('.connection')[1]?.querySelector('[name=video_mode]')?.value === {json.dumps(higher_mode)}"), "remembered mode after refresh")
             assert set(json.loads(saved_path.read_text())["working_video_modes"]) == {higher_mode, lower_mode}
             javascript("Array.from(document.querySelectorAll('.connection')[1].querySelectorAll('button')).find(button => button.textContent === 'Test video options').click()")
             javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[window.videoLower].querySelector('button').click()")
