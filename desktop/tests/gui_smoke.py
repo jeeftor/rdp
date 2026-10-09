@@ -197,36 +197,37 @@ def main() -> None:
             wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.command').textContent.includes('/v:edited.example.invalid')"), "full GUI launch command")
             wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.session-output').textContent.includes('fake session output')"), "live FreeRDP log")
             # Confirm real GUI trial commands and preference persistence with the fake client.
+            javascript("window.videoCard = () => Array.from(document.querySelectorAll('.connection')).find(card => card.querySelector('h2').textContent === 'Edited workstation')")
             lower_index, higher_index = (4, 0) if os.environ.get("DISPLAY") else (3, 1)
             lower_mode = "x11-software" if os.environ.get("DISPLAY") else "wayland-opengles2"
             higher_mode = "x11-opengl" if os.environ.get("DISPLAY") else "wayland-opengl"
             higher_label = "X11 · OpenGL" if os.environ.get("DISPLAY") else "Wayland · OpenGL"
             javascript(f"window.videoLower = {lower_index}; window.videoHigher = {higher_index}")
-            javascript("Array.from(document.querySelectorAll('.connection')[1].querySelectorAll('button')).find(button => button.textContent === 'Test video options').click()")
+            javascript("Array.from(window.videoCard().querySelectorAll('button')).find(button => button.textContent === 'Test video options').click()")
             if not os.environ.get("DISPLAY"):
-                javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[4].querySelector('button').click()")
+                javascript("window.videoCard().querySelectorAll('.video-trial')[4].querySelector('button').click()")
                 wait_for(lambda: javascript("return document.querySelector('#status').textContent.includes('requires DISPLAY')"), "unavailable X11 trial error")
-            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[window.videoLower].querySelector('button').click()")
+            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelector('button').click()")
             wait_for(lambda: "/size:1280x720" in (root / "arguments").read_text(), "simple video trial arguments")
             trial_arguments = (root / "arguments").read_text()
             assert "/sec:nla" in trial_arguments
             assert "/monitors:" not in trial_arguments and "/multimon" not in trial_arguments
-            wait_for(lambda: javascript("return !document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[window.videoLower].querySelector('button').disabled"), "video trial exit")
-            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[window.videoLower].querySelectorAll('button')[1].click()")
+            wait_for(lambda: javascript("return !window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelector('button').disabled"), "video trial exit")
+            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelectorAll('button')[1].click()")
             wait_for(lambda: json.loads(saved_path.read_text()).get("video_mode") == lower_mode, "confirmed lower-priority renderer")
-            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[window.videoHigher].querySelector('button').click()")
-            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.command').textContent.includes(\"SDL_RENDER_DRIVER='opengl'\")"), "OpenGL video trial")
-            wait_for(lambda: javascript("return !document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[window.videoHigher].querySelector('button').disabled"), "OpenGL trial exit")
-            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[window.videoHigher].querySelectorAll('button')[1].click()")
+            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoHigher].querySelector('button').click()")
+            wait_for(lambda: javascript("return window.videoCard().querySelector('.command').textContent.includes(\"SDL_RENDER_DRIVER='opengl'\")"), "OpenGL video trial")
+            wait_for(lambda: javascript("return !window.videoCard().querySelectorAll('.video-trial')[window.videoHigher].querySelector('button').disabled"), "OpenGL trial exit")
+            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoHigher].querySelectorAll('button')[1].click()")
             wait_for(lambda: json.loads(saved_path.read_text()).get("video_mode") == higher_mode, "OpenGL preference over lower-priority renderer")
             assert json.loads(saved_path.read_text()).get("monitors", "") == ""
-            javascript("document.querySelectorAll('.connection')[1].dataset.refreshMarker = 'before'; document.querySelector('#refresh').click()")
-            wait_for(lambda: javascript(f"return document.querySelectorAll('.connection')[1]?.dataset.refreshMarker !== 'before' && document.querySelectorAll('.connection')[1]?.querySelector('[name=video_mode]')?.value === {json.dumps(higher_mode)}"), "remembered mode after refresh")
+            javascript("window.videoCard().dataset.refreshMarker = 'before'; document.querySelector('#refresh').click()")
+            wait_for(lambda: javascript(f"return window.videoCard()?.dataset.refreshMarker !== 'before' && window.videoCard()?.querySelector('[name=video_mode]')?.value === {json.dumps(higher_mode)}"), "remembered mode after refresh")
             assert set(json.loads(saved_path.read_text())["working_video_modes"]) == {higher_mode, lower_mode}
-            javascript("Array.from(document.querySelectorAll('.connection')[1].querySelectorAll('button')).find(button => button.textContent === 'Test video options').click()")
-            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[window.videoLower].querySelector('button').click()")
-            wait_for(lambda: javascript("return !document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[window.videoLower].querySelector('button').disabled"), "repeated lower-priority trial exit")
-            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.video-trial')[window.videoLower].querySelectorAll('button')[1].click()")
+            javascript("Array.from(window.videoCard().querySelectorAll('button')).find(button => button.textContent === 'Test video options').click()")
+            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelector('button').click()")
+            wait_for(lambda: javascript("return !window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelector('button').disabled"), "repeated lower-priority trial exit")
+            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelectorAll('button')[1].click()")
             wait_for(lambda: javascript(f"return document.querySelector('#status').textContent.includes({json.dumps('Remembered ' + higher_label)})"), "lower-priority renderer cannot downgrade confirmed OpenGL")
             assert json.loads(saved_path.read_text())["video_mode"] == higher_mode
             original = saved_path.read_bytes()
