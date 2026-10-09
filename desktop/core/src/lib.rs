@@ -258,11 +258,6 @@ impl Store {
         }
     }
 
-    /// Report saved-password presence without returning the secret to the webview.
-    pub fn has_password(&self, id: &str) -> Result<bool, String> {
-        Ok(self.password_path(id)?.is_file())
-    }
-
     /// Save a plaintext password with private directory and file permissions.
     pub fn save_password(&self, id: &str, password: &str) -> Result<(), String> {
         connection::validate_password(password)?;
@@ -537,7 +532,7 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let store = Store::new(temporary.path().join("rdpctl/connections"));
         let saved = store.create(profile()).unwrap();
-        assert!(!store.has_password(&saved.id).unwrap());
+        assert!(store.password(&saved.id).unwrap().is_none());
         store.save_password(&saved.id, "one ' secret").unwrap();
         assert_eq!(
             store.password(&saved.id).unwrap().as_deref(),

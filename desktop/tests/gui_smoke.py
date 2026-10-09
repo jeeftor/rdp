@@ -130,6 +130,10 @@ def main() -> None:
             wait_for(password_path.exists, "saved plaintext password")
             assert password_path.read_text() == "saved secret"
             assert password_path.stat().st_mode & 0o777 == 0o600
+            assert javascript("return document.querySelectorAll('.connection')[1].querySelector('[name=password]').type") == "text"
+            assert javascript("return document.querySelectorAll('.connection')[1].querySelector('[name=password]').value") == "saved secret"
+            assert javascript("return document.querySelectorAll('.connection')[1].querySelector('.display-settings').textContent.includes('Automatic graphics (Wayland / X11)')")
+            assert javascript("return document.querySelectorAll('.connection')[1].querySelector('[name=software_rendering]').checked") is False
             javascript("document.querySelectorAll('.connection')[1].querySelector('button').click()")
             expected_arguments = [
                 "/v:new.example.invalid", "/u:user", "/multimon", "/monitors:3", "/f", "/cert:deny", "/p:saved secret"

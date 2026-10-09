@@ -49,8 +49,8 @@ fn update_profile(profile: Profile) -> Result<Profile, String> {
 }
 
 #[tauri::command]
-fn password_saved(id: String) -> Result<bool, String> {
-    Store::from_environment()?.has_password(&id)
+fn saved_password(id: String) -> Result<Option<String>, String> {
+    Store::from_environment()?.password(&id)
 }
 
 #[tauri::command]
@@ -174,7 +174,7 @@ fn main() {
             list_profiles,
             create_profile,
             update_profile,
-            password_saved,
+            saved_password,
             save_password,
             forget_password,
             forget_certificate,

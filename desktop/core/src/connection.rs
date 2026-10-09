@@ -78,7 +78,7 @@ pub(crate) fn spawn(
     Ok((child, copyable))
 }
 
-/// The outcome of one NLA authentication attempt, with password-redacted details.
+/// The outcome of one NLA authentication attempt, with captured diagnostic details.
 #[derive(Debug, Serialize)]
 pub struct TestResult {
     pub success: bool,
@@ -144,13 +144,13 @@ fn test_with_timeout(
         }
         std::thread::sleep(Duration::from_millis(50));
     };
-    let details = read_log(&mut log, password)?;
+    let details = read_log(&mut log)?;
     let mut result = classify(status.success() && !timed_out, timed_out, details);
     result.command = copyable;
     Ok(result)
 }
 
-fn read_log(log: &mut File, password: &str) -> Result<String, String> {
+fn read_log(log: &mut File) -> Result<String, String> {
     let length = log.metadata().map_err(|error| error.to_string())?.len();
     log.seek(SeekFrom::Start(length.saturating_sub(65536)))
         .map_err(|error| error.to_string())?;
@@ -159,7 +159,6 @@ fn read_log(log: &mut File, password: &str) -> Result<String, String> {
         .read_to_end(&mut bytes)
         .map_err(|error| error.to_string())?;
     Ok(String::from_utf8_lossy(&bytes)
-        .replace(password, "[password redacted]")
         .chars()
         .filter(|character| !character.is_control() || *character == '\n' || *character == '\t')
         .collect())
@@ -364,7 +363,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn tests_credentials_through_stdin_and_redacts_output_with_a_deadline() {
+    fn tests_credentials_through_stdin_and_preserves_output_with_a_deadline() {
         let _guard = crate::PROCESS_TEST_LOCK.lock().unwrap();
         use std::os::unix::fs::PermissionsExt;
         let directory = tempfile::tempdir().unwrap();
@@ -386,7 +385,7 @@ mod tests {
         };
         let result = test_connection(profile.clone(), &client, "secret-password").unwrap();
         assert_eq!(result.kind, "credentials");
-        assert!(!result.details.contains("secret-password"));
+        assert!(result.details.contains("secret-password"));
         assert!(result.command.contains("'/p:secret-password'"));
         assert!(result.command.contains("'+auth-only'"));
         assert_eq!(fs::read_to_string(&args).unwrap(), "/args-from:stdin\n");

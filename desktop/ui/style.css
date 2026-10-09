@@ -18,15 +18,17 @@ input:not([type=checkbox]) { width: 100%; display: block; margin-top: 7px; borde
 fieldset { border: 1px solid #425169; border-radius: 7px; padding: 12px; }
 legend { font-size: 13px; }
 input[type=checkbox] { accent-color: #74b0ff; }
-button { background: #25364c; border: 1px solid #425169; border-radius: 7px; color: #e5edf8; padding: 10px 16px; cursor: pointer; font: inherit; font-size: 13px; }
+button, .connection summary { background: #25364c; border: 1px solid #425169; border-radius: 7px; color: #e5edf8; padding: 10px 16px; cursor: pointer; font: inherit; font-size: 13px; }
 button.primary { background: #8dc1ff; color: #10213b; border-color: #8dc1ff; font-weight: 650; }
 button:disabled { opacity: .5; cursor: wait; }
-button:focus-visible, input:focus-visible { outline: 2px solid #9ccaff; outline-offset: 3px; }
+button:focus-visible, .connection summary:focus-visible, input:focus-visible { outline: 2px solid #9ccaff; outline-offset: 3px; }
 select { width: 100%; margin-top: 7px; border: 1px solid #425169; border-radius: 6px; background: #101722; color: #e5edf8; padding: 10px; font: inherit; }
 select:focus-visible { outline: 2px solid #9ccaff; outline-offset: 3px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .connection details { margin-top: 16px; }
-.connection summary { cursor: pointer; }
+.connection summary { display: list-item; width: fit-content; list-style-position: inside; }
+button:hover:not(:disabled), .connection summary:hover { background: #354d6b; border-color: #8dc1ff; }
+button.primary:hover:not(:disabled) { background: #b3d6ff; }
 .connection details > form { margin-top: 16px; }
 .test-result { margin-top: 16px; }
 .test-result.error { color: #ffb7ac; }

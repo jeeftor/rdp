@@ -43,7 +43,8 @@ async function addConnectionActions(card, profile) {
     fields[name] = input;
     editor.append(field(label, input));
   }
-  for (const [name, label] of [['fullscreen', 'Full screen'], ['multi_monitor', 'Use multiple monitors'], ['software_rendering', 'Use X11 software rendering (requires DISPLAY / XWayland)']]) {
+  editor.append(element('p', 'Graphics: Automatic by default. Tests Wayland and X11 and selects a working OpenGL renderer. Leave the override below unchecked for automatic mode.', 'hint'));
+  for (const [name, label] of [['fullscreen', 'Full screen'], ['multi_monitor', 'Use multiple monitors'], ['software_rendering', 'Force X11 software rendering']]) {
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.name = name;
@@ -82,14 +83,15 @@ async function addConnectionActions(card, profile) {
   fields.software_rendering.addEventListener('change', () => detected.replaceChildren());
   editor.append(detect, detected);
   const password = document.createElement('input');
-  password.type = 'password';
+  password.type = 'text';
   password.name = 'password';
   password.autocomplete = 'new-password';
   password.maxLength = 4096;
   const passwordStatus = element('p', '', 'hint');
   async function refreshPasswordStatus() {
-    const saved = await tauri.core.invoke('password_saved', { id: profile.id });
-    passwordStatus.textContent = saved ? 'Plaintext password saved. Leave blank to use it.' : 'No saved password. Enter one to test; FreeRDP can prompt when connecting.';
+    const saved = await tauri.core.invoke('saved_password', { id: profile.id });
+    password.value = saved ?? '';
+    passwordStatus.textContent = saved !== null ? 'Your saved plaintext password is shown above.' : 'No saved password. Enter one to test; FreeRDP can prompt when connecting.';
   }
   await refreshPasswordStatus();
   editor.append(field('Password', password), passwordStatus);
@@ -161,7 +163,6 @@ async function addConnectionActions(card, profile) {
     save.disabled = true;
     try {
       await applySettings();
-      password.value = '';
       message(`Saved settings for ${profile.name}.`);
     } catch (error) { message(String(error), true); }
     finally { save.disabled = false; }
@@ -234,7 +235,6 @@ async function addConnectionActions(card, profile) {
         commandText.textContent = launched.command;
         message(`Launched ${profile.name}. Continue in the FreeRDP window.`);
       }
-      password.value = '';
     } catch (error) { options.open = true; message(String(error), true); }
     finally { connect.disabled = test.disabled = false; }
   }
@@ -248,7 +248,7 @@ async function addConnectionActions(card, profile) {
 function displaySettings(profile) {
   const settings = [profile.fullscreen ? 'Full screen' : 'Windowed', profile.multi_monitor ? 'Multiple monitors' : 'Single monitor'];
   if (profile.monitors) settings.push(`Monitors ${profile.monitors}`);
-  if (profile.software_rendering) settings.push('X11 software rendering');
+  settings.push(profile.software_rendering ? 'Forced X11 software rendering' : 'Automatic graphics (Wayland / X11)');
   return settings.join(' · ');
 }
 
@@ -343,7 +343,7 @@ if (tauri) {
       message('A saved monitor ID is invalid for this display backend. Detect displays in Edit connection, or clear Monitor IDs to use defaults.', true);
     }
     if (payload.line.includes('Window framebuffer support not available')) {
-      message('FreeRDP could not render the desktop. Try X11 software rendering in Edit connection, or check the host EGL/graphics drivers.', true);
+      message('FreeRDP could not render the desktop. Try Force X11 software rendering in Edit connection, or check the host EGL/graphics drivers.', true);
     }
   });
   await tauri.event.listen('session-ended', ({ payload }) => {

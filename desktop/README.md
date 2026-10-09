@@ -114,7 +114,7 @@ to select current IDs. Bundles installed before this feature keep their existing
 behavior until updated.
 
 If GPU renderer creation fails and you see `Window framebuffer support not
-available`, try **Use X11 software rendering** in **Edit connection**. It uses
+available`, try **Force X11 software rendering** in **Edit connection**. It uses
 `SDL_VIDEODRIVER=x11 SDL_RENDER_DRIVER=software SDL_FRAMEBUFFER_ACCELERATION=0`,
 requires a working `DISPLAY`
 (Xorg or XWayland), and leaves the default native backend unchanged otherwise.
@@ -192,3 +192,9 @@ real GUI-to-Rust-to-process boundary without connecting to a remote host. They
 verify profile compatibility, monitor selection, exact launch arguments, safe
 text rendering, private files, plaintext password storage, authentication-test
 results, explicit certificate backup and protection against duplicate overwrites.
+
+The connection cards show **Automatic graphics (Wayland / X11)** unless you
+explicitly enable **Force X11 software rendering**. Leave this override unchecked
+for automatic detection. Edit and log disclosure controls have bordered button
+styling and keyboard focus indicators. New and saved passwords are visible as
+plaintext in their fields, copyable commands, and diagnostic output.
