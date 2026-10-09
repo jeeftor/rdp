@@ -4,13 +4,17 @@
 
 A portable Linux x86_64 FreeRDP SDL3 client with **Wayland and X11** support,
 plus terminal and graphical `rdpctl` connection managers. GitHub Actions builds directly
-on Ubuntu 24.04 and publishes tarball, RPM, and DEB release artifacts. Docker
+on Ubuntu 24.04 and publishes one combined RPM, matching sources and checksums. Docker
 is not required.
 
 ## Download and run
 
-Download an artifact from [Releases](https://github.com/jeeftor/rdp/releases).
-Verify it against the accompanying `SHA256SUMS` before installing or extracting.
+Download the combined `rdp` RPM and `SHA256SUMS` from
+[Releases](https://github.com/jeeftor/rdp/releases), then follow the desktop
+installation below. Releases from rc.7 publish just one installer. Other package
+formats are still built and tested in CI and can be built locally.
+
+For a locally built client-only tarball, verify its `SHA256SUMS` before extracting:
 
 ```bash
 sha256sum --ignore-missing --check SHA256SUMS
@@ -42,25 +46,23 @@ An RPM/DEB extension alone does not establish support for every distribution.
 
 ## Combined desktop installation
 
-For an air-gapped desktop, download the combined **rdp** RPM or
-**rdpctl-portable** DEB with
-FreeRDP, the Rust GUI and GTK/WebKit runtime. Verify `GUI-SHA256SUMS` first.
+For an air-gapped RHEL 10 desktop, download the single **rdp** RPM with
+FreeRDP, the Rust GUI and GTK/WebKit runtime. Verify `SHA256SUMS` first.
 
 ```bash
+sha256sum --ignore-missing --check SHA256SUMS
 sudo dnf --disablerepo='*' install ./rdp-*.x86_64.rpm
-# Ubuntu 24.04:
-sudo apt install ./rdpctl-portable_*_amd64.deb
 ```
 
 The RPM also replaces the previous `rdpctl-portable` RPM. The combined
 package replaces the older two packages and installs under
 `/opt/rdpctl-portable`. Open **rdpctl** from your application menu, or run
 `rdpctl-gui`. The `freerdp` command remains available. For installation without
-root, extract the `rdpctl-portable-x86_64-VERSION.tar.gz` archive and run
+root, build and extract the `rdpctl-portable-x86_64-VERSION.tar.gz` archive and run
 `./rdpctl` inside it. See [desktop documentation](desktop/README.md) for the
 AppImage alternative, building, and remaining host requirements.
 
-## Client-only RPM and DEB installation
+## Locally built client-only RPM and DEB installation
 
 ```bash
 # RHEL 10: install the downloaded RPM (target validation pending).
@@ -86,9 +88,8 @@ A Rust/Tauri graphical connection manager is available in
 FreeRDP client, with display selection, optional saved plaintext passwords,
 NLA authentication tests, per-connection certificate policies, and full command
 logging. See the desktop documentation for certificate trust and backup controls.
-Prereleases from `v0.1.0-rc.3` include separate `rdpctl-gui` RPM and DEB packages.
-Those smaller packages require host GTK/WebKit. For air-gapped use, choose
-the combined `rdp` RPM or `rdpctl-portable` DEB described above.
+Older prereleases include separate `rdpctl-gui` packages requiring host
+GTK/WebKit. Current releases publish the combined `rdp` RPM described above.
 
 Run `./bin/rdpctl` in the client-only archive, or `rdpctl` after installing the
 client-only package, to
@@ -136,7 +137,8 @@ and inspects RPM metadata. These checks do not prove actual RDP connectivity
 or physical multi-monitor behavior on another workstation.
 
 Pushing a project SemVer tag such as `v0.1.0-rc.1` publishes the validated
-client and GUI artifacts to a GitHub prerelease after both builds and their
+combined `rdp` RPM, one consolidated source archive and `SHA256SUMS` to a
+GitHub prerelease after both builds and their
 X11/Wayland checks pass. Project/package versions are independent of
 the pinned FreeRDP version in archive names. Only the release job has repository
 write permission; build and pull-request jobs have read permission. No private

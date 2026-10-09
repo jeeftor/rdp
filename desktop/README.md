@@ -88,7 +88,9 @@ The frontend cannot supply an executable path or run arbitrary shell commands.
 
 ## Packages and testing
 
-The recommended air-gap package is the **rdp** RPM or **rdpctl-portable** DEB.
+The published air-gap installer is the single **rdp** RPM for RHEL 10 x86_64.
+The release also includes `SHA256SUMS` and one consolidated matching-source
+archive; other formats are available through local builds and CI artifacts.
 One package installs
 FreeRDP, the GUI, GTK3, WebKitGTK 4.1, their helper processes and resources.
 It replaces the older `freerdp-portable` and `rdpctl-gui` packages; the RPM
@@ -96,15 +98,14 @@ also replaces the previous `rdpctl-portable` RPM. Open **rdpctl**
 from the application menu after installation. Profiles remain in your home directory.
 
 ```bash
-# RHEL 10: DNF handles replacement of the older packages.
+sha256sum --ignore-missing --check SHA256SUMS
+# DNF handles replacement of the older packages and updates an existing install.
 sudo dnf --disablerepo='*' install ./rdp-*.x86_64.rpm
-# Ubuntu 24.04:
-sudo apt install ./rdpctl-portable_*_amd64.deb
 ```
 
-For installation without root or FUSE, verify `GUI-SHA256SUMS`, extract
+For a locally built installation without root or FUSE, verify `GUI-SHA256SUMS`, extract
 `rdpctl-portable-x86_64-VERSION.tar.gz` to a local executable filesystem,
-enter its directory, and run `./rdpctl`. An AppImage is also available; use
+enter its directory, and run `./rdpctl`. Local packaging also creates an AppImage; use
 `chmod +x FILE.AppImage` and `./FILE.AppImage --appimage-extract-and-run` when
 FUSE is unavailable. The bundled client is under `app/usr/share/rdpctl/freerdp`.
 Host glibc 2.39 or later, desktop graphics drivers, EGL and keyboard data are
@@ -129,7 +130,8 @@ Tagged releases use the client artifact built from the same tag; development
 GUI builds use the pinned `v0.1.0-rc.4` client baseline. Release publication waits
 for both client and desktop builds and tests to pass.
 
-To rebuild the source archive offline, extract it, enter `gui-sources`, and run
+To rebuild the GUI offline, extract the consolidated source archive, then its
+embedded `rdpctl-gui-VERSION-sources.tar.gz`, enter `gui-sources`, and run
 `cargo build --release --locked --offline -p rdpctl-gui` with the documented Rust
 toolchain and system development libraries already installed.
 

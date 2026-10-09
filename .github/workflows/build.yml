@@ -105,6 +105,9 @@ jobs:
         run: |
           (cd output && sha256sum --check SHA256SUMS)
           (cd output && sha256sum --check GUI-SHA256SUMS)
-          gh release create "$RELEASE_TAG" output/*.tar.gz output/*.rpm output/*.deb output/*.AppImage output/SHA256SUMS output/GUI-SHA256SUMS \
+          mkdir publish
+          cp "output/rdp-${RELEASE_TAG#v}.x86_64.rpm" "output/rdpctl-portable-${RELEASE_TAG#v}-sources.tar.gz" publish/
+          (cd publish && sha256sum *.rpm *-sources.tar.gz > SHA256SUMS)
+          gh release create "$RELEASE_TAG" publish/*.rpm publish/*-sources.tar.gz publish/SHA256SUMS \
             --verify-tag --prerelease --title "$RELEASE_TAG" \
-            --notes 'Install the single rdp RPM or rdpctl-portable DEB for the GUI, GTK/WebKit runtime, and FreeRDP, or extract its portable tarball and run ./rdpctl. An AppImage is also included. Rust/Tauri rdpctl GUI and FreeRDP SDL3 client with Wayland and X11 backends. Legacy separate freerdp-portable and rdpctl-gui packages remain available. Includes RPMs, DEBs, a portable client tarball, matching source archives, dependency licenses, and SHA-256 checksums. Both builds and headless X11/Wayland GUI tests must pass before publishing. The combined package bundles GTK3 and WebKitGTK 4.1. Host glibc 2.39 or later, graphics drivers and desktop keyboard data are still required. RHEL 10 installation, real RDP connections, and physical multi-monitor behavior still require target validation.'
+            --notes 'Install the single combined rdp RPM on RHEL 10 x86_64. It includes the GUI, FreeRDP, GTK3 and WebKitGTK runtime. The source archive includes matching client, GUI and bundled dependency sources. Verify SHA256SUMS before installation. Client and desktop builds and X11/Wayland tests pass before publication. Host graphics drivers and keyboard data remain required. Actual RHEL installation, RDP connections and physical multi-monitor behavior require target validation.'
