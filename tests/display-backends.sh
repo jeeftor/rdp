@@ -21,6 +21,8 @@ check_monitors xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11
 # xvfb-run merges stderr into stdout; isolate probe diagnostics before that merge.
 probe_errors="$(mktemp)"
 selection_status=0
+# The nested shell, not this shell, expands its positional arguments.
+# shellcheck disable=SC2016
 selection="$(xvfb-run -a env -u SDL_VIDEO_DRIVER -u SDL_VIDEODRIVER -u SDL_RENDER_DRIVER WAYLAND_DISPLAY=rdp-missing sh -c 'exec "$1" 2>"$2"' sh "$bundle/bin/rdp-render-probe" "$probe_errors")" || selection_status=$?
 cat "$probe_errors"
 rm -f "$probe_errors"
