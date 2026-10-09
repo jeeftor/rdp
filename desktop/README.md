@@ -98,8 +98,8 @@ for Wayland. These normally come from your logged-in desktop session; do not
 point them at arbitrary directories. `XKB_CONFIG_ROOT` refers to host keyboard
 data and defaults to `/usr/share/X11/xkb`.
 
-The launcher probes the bundled SDL library before a desktop connection or
-monitor detection. It tests window creation, a target texture and frame
+In automatic graphics mode, the launcher probes the bundled SDL library before
+a desktop connection or monitor detection. It tests window creation, a target texture and frame
 presentation, trying Wayland OpenGL/OpenGL ES first and then X11 when available.
 It selects the first working path and includes the selected backend and renderer
 in the GUI's copyable desktop command. Probe diagnostics include the OpenGL device
@@ -116,8 +116,7 @@ behavior until updated.
 If GPU renderer creation fails and you see `Window framebuffer support not
 available`, choose **X11 · Software fallback** under **Graphics mode** in **Edit connection**. It uses
 `SDL_VIDEODRIVER=x11 SDL_RENDER_DRIVER=software SDL_FRAMEBUFFER_ACCELERATION=0`,
-requires a working `DISPLAY`
-(Xorg or XWayland), and leaves the default native backend unchanged otherwise.
+requires a working `DISPLAY` (Xorg or XWayland), and applies to that connection.
 On Wayland without XWayland, repair the host EGL/graphics driver setup instead.
 Monitor IDs can differ between Wayland and X11. **Detect displays for this
 connection** uses its chosen backend; select the reported IDs or clear Monitor
