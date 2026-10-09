@@ -16,13 +16,17 @@ check_monitors() {
 }
 xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 "$root/.build/sdl-backends" x11
 xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 SDL_RENDER_DRIVER=software SDL_FRAMEBUFFER_ACCELERATION=0 "$root/.build/sdl-backends" x11 software
-set -x
 check_monitors xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11
 # A stale/unusable Wayland socket must fall back to X11/OpenGL, never software.
-selection="$(xvfb-run -a env -u SDL_VIDEO_DRIVER -u SDL_VIDEODRIVER -u SDL_RENDER_DRIVER WAYLAND_DISPLAY=rdp-missing "$bundle/bin/rdp-render-probe")"
+# xvfb-run merges stderr into stdout; isolate probe diagnostics before that merge.
+probe_errors="$(mktemp)"
+selection_status=0
+selection="$(xvfb-run -a env -u SDL_VIDEO_DRIVER -u SDL_VIDEODRIVER -u SDL_RENDER_DRIVER WAYLAND_DISPLAY=rdp-missing sh -c 'exec "$1" 2>"$2"' sh "$bundle/bin/rdp-render-probe" "$probe_errors")" || selection_status=$?
+cat "$probe_errors"
+rm -f "$probe_errors"
 printf 'Automatic graphics selection: <%s>\n' "$selection"
+[[ "$selection_status" -eq 0 ]]
 [[ "$selection" == 'x11|opengl' || "$selection" == 'x11|opengles2' ]]
-set +x
 export XDG_RUNTIME_DIR
 XDG_RUNTIME_DIR="$(mktemp -d)"
 chmod 700 "$XDG_RUNTIME_DIR"
