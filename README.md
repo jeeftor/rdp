@@ -27,7 +27,8 @@ cd freerdp-portable-x86_64-3.30.0
 
 Use the monitor IDs reported by `/list:monitor`. FreeRDP prompts for your
 password when you invoke it without credentials. The desktop manager can save
-plaintext passwords locally and prints full copyable commands, including passwords.
+plaintext passwords locally and shows full copyable commands and live FreeRDP
+output in the GUI log and terminal, including passwords.
 
 The wrapper selects native Wayland when `WAYLAND_DISPLAY` is set and X11 when
 only `DISPLAY` is set. You can choose explicitly:
@@ -62,12 +63,9 @@ root, build and extract the `rdpctl-portable-x86_64-VERSION.tar.gz` archive and 
 `./rdpctl` inside it. See [desktop documentation](desktop/README.md) for the
 AppImage alternative, building, and remaining host requirements.
 
-## Locally built client-only RPM and DEB installation
+## Locally built client-only DEB installation
 
 ```bash
-# RHEL 10: install the downloaded RPM (target validation pending).
-sudo dnf install ./freerdp-portable*.rpm
-
 # Ubuntu 24.04: install the downloaded DEB.
 sudo apt install ./freerdp-portable*.deb
 
@@ -87,7 +85,8 @@ A Rust/Tauri graphical connection manager is available in
 [desktop/](desktop/README.md). It shares these profiles and launches the same
 FreeRDP client, with display selection, optional saved plaintext passwords,
 NLA authentication tests, per-connection certificate policies, and full command
-logging. See the desktop documentation for certificate trust and backup controls.
+logging. Existing connections can be edited, including an X11 software-rendering
+option for hosts where GPU renderers fail. See the desktop documentation for certificate trust and backup controls.
 Older prereleases include separate `rdpctl-gui` packages requiring host
 GTK/WebKit. Current releases publish the combined `rdp` RPM described above.
 
@@ -133,7 +132,8 @@ Move existing output aside before repeating packaging.
 Every push, pull request, and manual workflow run builds and validates the
 artifacts. CI checks the packaged SDL library under Xvfb and headless Weston,
 runs FreeRDP monitor enumeration on each backend, upgrades/removes the DEB,
-and inspects RPM metadata. These checks do not prove actual RDP connectivity
+and inspects the single combined RPM. Other RPM installers are no longer built;
+upgrade tests use old published packages. These checks do not prove actual RDP connectivity
 or physical multi-monitor behavior on another workstation.
 
 Pushing a project SemVer tag such as `v0.1.0-rc.1` publishes the validated

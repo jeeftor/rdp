@@ -25,10 +25,13 @@ rpm -qp --requires output/rdp-*.rpm
 if rpm -qp --requires output/rdp-*.rpm | rg 'webkit|gtk3'; then exit 1; fi
 if dpkg-deb -f output/rdpctl-portable*.deb Depends | rg 'webkit|libgtk'; then exit 1; fi
 
+# Verify previously published RPMs; this build creates only the new combined RPM.
+gh release download v0.1.0-rc.5 --repo jeeftor/rdp --pattern '*.rpm' --pattern SHA256SUMS --pattern GUI-SHA256SUMS --dir .build/upgrade-rpms
+(cd .build/upgrade-rpms && sha256sum --ignore-missing --check SHA256SUMS && sha256sum --ignore-missing --check GUI-SHA256SUMS)
 # Exercise the exact upgrade from the old two packages in an isolated RPM database.
 mkdir -p .build/rpm-upgrade
 rpm --root "$root/.build/rpm-upgrade" --initdb
-rpm --root "$root/.build/rpm-upgrade" --nodeps -i .build/portable-input/freerdp-portable*.rpm output/rdpctl-gui*.rpm
+rpm --root "$root/.build/rpm-upgrade" --nodeps -i .build/upgrade-rpms/freerdp-portable*.rpm .build/upgrade-rpms/rdpctl-gui*.rpm
 rpm --root "$root/.build/rpm-upgrade" --nodeps -U output/rdp-*.rpm
 rpm --root "$root/.build/rpm-upgrade" -q rdp
 if rpm --root "$root/.build/rpm-upgrade" -q rdpctl-portable; then exit 1; fi
@@ -37,23 +40,9 @@ if rpm --root "$root/.build/rpm-upgrade" -q rdpctl-gui; then exit 1; fi
 rpm --root "$root/.build/rpm-upgrade" -qf /usr/bin/freerdp /usr/bin/rdpctl-gui
 
 # Check replacement of the previous combined package, including overlapping files.
-cat > .build/previous-portable-nfpm.yaml <<'CONFIG'
-name: rdpctl-portable
-arch: amd64
-platform: linux
-version: 0.1.0-rc.5
-maintainer: jeeftor
-description: Previous combined package upgrade fixture
-contents:
-  - src: .build/portable-launchers/rdpctl-gui
-    dst: /usr/bin/rdpctl-gui
-  - src: .build/portable-launchers/freerdp
-    dst: /usr/bin/freerdp
-CONFIG
-nfpm package --config .build/previous-portable-nfpm.yaml --packager rpm --target .build/previous-portable.rpm
 mkdir -p .build/rpm-rename
 rpm --root "$root/.build/rpm-rename" --initdb
-rpm --root "$root/.build/rpm-rename" --nodeps -i .build/previous-portable.rpm
+rpm --root "$root/.build/rpm-rename" --nodeps -i .build/upgrade-rpms/rdpctl-portable*.rpm
 rpm --root "$root/.build/rpm-rename" --nodeps -U output/rdp-*.rpm
 rpm --root "$root/.build/rpm-rename" -q rdp
 if rpm --root "$root/.build/rpm-rename" -q rdpctl-portable; then exit 1; fi

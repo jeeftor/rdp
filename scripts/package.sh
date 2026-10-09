@@ -60,6 +60,5 @@ export BUNDLE_DIR="$bundle" LAUNCHER_DIR="$work/launchers" PACKAGE_VERSION="${PA
 # shellcheck disable=SC2016
 envsubst '${BUNDLE_DIR} ${LAUNCHER_DIR} ${PACKAGE_VERSION}' <"$root/packaging/nfpm.yaml" >"$work/nfpm.yaml"
 # Explicit SemVer filenames avoid GitHub replacing nFPM's prerelease tilde.
-nfpm package --config "$work/nfpm.yaml" --packager rpm --target "$output/freerdp-portable-${PACKAGE_VERSION}.x86_64.rpm"
 nfpm package --config "$work/nfpm.yaml" --packager deb --target "$output/freerdp-portable_${PACKAGE_VERSION}_amd64.deb"
-(cd "$output" && sha256sum ./*.tar.gz ./*.rpm ./*.deb > SHA256SUMS)
+(cd "$output" && sha256sum ./*.tar.gz ./*.deb > SHA256SUMS)

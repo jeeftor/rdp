@@ -15,6 +15,7 @@ check_monitors() {
   rg -q '\[[0-9]+\].*[0-9]+x[0-9]+' <<<"$output"
 }
 xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 "$root/.build/sdl-backends" x11
+xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 SDL_RENDER_DRIVER=software SDL_FRAMEBUFFER_ACCELERATION=0 "$root/.build/sdl-backends" x11 software
 check_monitors xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11
 export XDG_RUNTIME_DIR
 XDG_RUNTIME_DIR="$(mktemp -d)"

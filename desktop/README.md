@@ -2,15 +2,16 @@
 
 The Rust/Tauri desktop app is the graphical connection manager for the Linux
 FreeRDP bundle. Save a host and username, select your displays, and click
-**Connect**. FreeRDP opens its own native window. Under **Password and certificate
-settings**, enter a password and optionally save it in plaintext on this machine.
+**Connect**. FreeRDP opens its own native window. Under **Edit connection**, enter a password and optionally save it in plaintext on this machine.
 Leave the field empty to use your saved password; without one, FreeRDP prompts
 when connecting. **Forget saved password** removes only that connection's password.
 
 Profiles use the existing `~/.config/rdpctl/connections/*.json` format, respecting
 `XDG_CONFIG_HOME`. The GUI lists existing profiles and creates new ones with
 private permissions. Duplicate names/IDs are rejected without overwriting files.
-Certificate settings can be updated without recreating a profile. Plaintext
+Edit the name, host, username, monitor IDs, fullscreen and multi-monitor options
+without recreating the connection. Its stable ID and saved password are retained.
+Profiles remain JSON under `~/.config/rdpctl/connections` (or `XDG_CONFIG_HOME`). Plaintext
 passwords are stored separately in `connections/passwords/<id>` with directory
 mode 700 and file mode 600. Profile JSON still contains no password, preserving
 compatibility with the terminal app. The terminal app does not use saved GUI
@@ -40,7 +41,9 @@ followed by **Confirm certificate backup** moves only the selected host/port's
 does not automatically trust the new certificate or change your policy.
 
 Every launch and test prints a shell-quoted, copyable FreeRDP command to standard
-error, including the password. The actual launch passes arguments through
+error and the GUI connection log, including the password. The GUI also streams
+FreeRDP stdout/stderr into that log; **Copy command** copies the full shell-quoted
+command, including environment overrides for software rendering. The actual launch passes arguments through
 standard input when using a password. To keep terminal output locally:
 
 ```bash
@@ -86,6 +89,22 @@ The separate GUI package uses `/opt/freerdp-portable/freerdp`. For development, 
 are inherited, allowing the existing wrapper to select Wayland or X11.
 The frontend cannot supply an executable path or run arbitrary shell commands.
 
+## Display and rendering failures
+
+The client uses `DISPLAY` for X11 and `WAYLAND_DISPLAY` plus `XDG_RUNTIME_DIR`
+for Wayland. These normally come from your logged-in desktop session; do not
+point them at arbitrary directories. `XKB_CONFIG_ROOT` refers to host keyboard
+data and defaults to `/usr/share/X11/xkb`.
+
+If GPU renderer creation fails and you see `Window framebuffer support not
+available`, try **Use X11 software rendering** in **Edit connection**. It uses
+`SDL_VIDEODRIVER=x11 SDL_RENDER_DRIVER=software SDL_FRAMEBUFFER_ACCELERATION=0`,
+requires a working `DISPLAY`
+(Xorg or XWayland), and leaves the default native backend unchanged otherwise.
+On Wayland without XWayland, repair the host EGL/graphics driver setup instead.
+Authentication tests do not test desktop rendering. A Kerberos default-realm
+warning can precede a successful NTLM fallback; inspect the final outcome.
+
 ## Packages and testing
 
 The published air-gap installer is the single **rdp** RPM for RHEL 10 x86_64.
@@ -113,7 +132,7 @@ still required, along with kernel support and permission for WebKit sandbox
 namespaces. Actual RHEL 10 installation, real RDP connections and physical
 multi-monitor behavior require target validation.
 
-`make gui-package` retains the smaller separate GUI RPM/DEB for systems that
+`make gui-package` creates GUI sources, notices and a test DEB for systems that
 already have GTK3 and WebKitGTK 4.1. `make gui-portable-package` runs after that
 step, requires tauri-cli 2.12.1 and a checksum-verified client release in
 `.build/portable-input`, and creates the combined packages, AppImage, tarball,
@@ -128,7 +147,9 @@ runner loads a temporary AppArmor rule for the namespace test helpers; the
 application does not disable the WebKit sandbox.
 Tagged releases use the client artifact built from the same tag; development
 GUI builds use the pinned `v0.1.0-rc.4` client baseline. Release publication waits
-for both client and desktop builds and tests to pass.
+for both client and desktop builds and tests to pass. Packaging creates only one
+new RPM: the combined `rdp` installer. Upgrade tests download old published RPMs
+instead of building additional RPMs.
 
 To rebuild the GUI offline, extract the consolidated source archive, then its
 embedded `rdpctl-gui-VERSION-sources.tar.gz`, enter `gui-sources`, and run

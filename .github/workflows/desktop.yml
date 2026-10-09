@@ -73,9 +73,10 @@ jobs:
       - name: Test actual GUI under X11 and Wayland
         run: |
           bash desktop/tests/display-backends.sh desktop/target/debug/rdpctl-gui
-      - name: Package desktop RPM, DEB and sources
+      - name: Package single combined RPM and test artifacts
         env:
           GOTOOLCHAIN: auto
+          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
         run: |

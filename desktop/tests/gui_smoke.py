@@ -69,7 +69,7 @@ def main() -> None:
             "      *) printf 'certificate not trusted\\nThe fingerprint for the host key sent by the remote host is "
             + "ab:" * 31 + "ab\\n'; exit 1 ;;\n"
             "    esac ;;\n"
-            "esac\nsleep 1\n"
+            "esac\nprintf 'fake session output\\n'\nsleep 1\n"
         )
         client.chmod(0o700)
         environment = dict(os.environ, XDG_CONFIG_HOME=str(root), RDPCTL_FREERDP=str(client))
@@ -153,6 +153,27 @@ def main() -> None:
             javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.actions button')[1].click()")
             wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].textContent.includes('NLA authentication succeeded')"), "successful authentication test")
             assert json.loads(saved_path.read_text())["fingerprint"] == "ab" * 32
+            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.command').textContent.includes('/p:saved secret')"), "full GUI test command")
+            javascript("""
+              const card = document.querySelectorAll('.connection')[1];
+              const editor = card.querySelector('details form');
+              editor.elements.name.value = 'Edited workstation';
+              editor.elements.host.value = 'edited.example.invalid';
+              editor.elements.user.value = 'DOMAIN\\\\other';
+              editor.elements.fullscreen.checked = false;
+              editor.elements.monitors.value = '1,3';
+              editor.requestSubmit();
+            """)
+            wait_for(lambda: json.loads(saved_path.read_text())["host"] == "edited.example.invalid", "edited connection")
+            edited = json.loads(saved_path.read_text())
+            assert edited["id"] == "new-workstation"
+            assert edited["user"] == "DOMAIN\\other" and edited["monitors"] == "1,3"
+            assert edited["fullscreen"] is False
+            assert password_path.read_text() == "saved secret"
+            javascript("document.querySelectorAll('.connection')[1].querySelector('button').click()")
+            wait_for(lambda: "/v:edited.example.invalid" in (root / "arguments").read_text(), "edited FreeRDP launch")
+            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.command').textContent.includes('/v:edited.example.invalid')"), "full GUI launch command")
+            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.session-output').textContent.includes('fake session output')"), "live FreeRDP log")
             original = saved_path.read_bytes()
             javascript("""
               const form = document.querySelector('#profile-form');

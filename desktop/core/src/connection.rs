@@ -15,7 +15,20 @@ pub(crate) fn validate_password(password: &str) -> Result<(), String> {
 
 fn copyable_command(command: &Command, arguments: &[String]) -> String {
     let quote = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
-    let mut copyable = vec![quote(&command.get_program().to_string_lossy())];
+    let mut copyable = Vec::new();
+    for (name, value) in command.get_envs() {
+        if let Some(value) = value {
+            if copyable.is_empty() {
+                copyable.push("env".into());
+            }
+            copyable.push(format!(
+                "{}={}",
+                name.to_string_lossy(),
+                quote(&value.to_string_lossy())
+            ));
+        }
+    }
+    copyable.push(quote(&command.get_program().to_string_lossy()));
     copyable.extend(arguments.iter().map(|value| quote(value)));
     copyable.join(" ")
 }
@@ -24,7 +37,7 @@ pub(crate) fn spawn(
     command: &mut Command,
     mut arguments: Vec<String>,
     password: Option<&str>,
-) -> Result<Child, String> {
+) -> Result<(Child, String), String> {
     if let Some(password) = password {
         validate_password(password)?;
         arguments.push(format!("/p:{password}"));
@@ -33,10 +46,11 @@ pub(crate) fn spawn(
     } else {
         command.args(&arguments);
     }
+    let copyable = copyable_command(command, &arguments);
     // The air-gap operator explicitly wants a full command, including credentials.
     eprintln!(
         "FreeRDP command (includes password; copyable equivalent to stdin arguments): {}",
-        copyable_command(command, &arguments)
+        copyable
     );
     let mut child = command
         .spawn()
@@ -54,7 +68,7 @@ pub(crate) fn spawn(
             return Err(format!("Cannot send credentials to FreeRDP: {error}"));
         }
     }
-    Ok(child)
+    Ok((child, copyable))
 }
 
 /// The outcome of one NLA authentication attempt, with password-redacted details.
@@ -64,6 +78,7 @@ pub struct TestResult {
     pub kind: String,
     pub summary: String,
     pub details: String,
+    pub command: String,
     pub fingerprint: Option<String>,
     pub runtime_warning: Option<String>,
 }
@@ -108,7 +123,7 @@ fn test_with_timeout(
         .stderr(Stdio::from(
             log.try_clone().map_err(|error| error.to_string())?,
         ));
-    let mut child = spawn(&mut command, arguments, Some(password))?;
+    let (mut child, copyable) = spawn(&mut command, arguments, Some(password))?;
     let deadline = Instant::now() + timeout;
     let mut timed_out = false;
     let status = loop {
@@ -123,7 +138,9 @@ fn test_with_timeout(
         std::thread::sleep(Duration::from_millis(50));
     };
     let details = read_log(&mut log, password)?;
-    Ok(classify(status.success() && !timed_out, timed_out, details))
+    let mut result = classify(status.success() && !timed_out, timed_out, details);
+    result.command = copyable;
+    Ok(result)
 }
 
 fn read_log(log: &mut File, password: &str) -> Result<String, String> {
@@ -213,6 +230,7 @@ fn classify(success: bool, timed_out: bool, details: String) -> TestResult {
         kind: kind.into(),
         summary: summary.into(),
         details,
+        command: String::new(),
         fingerprint,
         runtime_warning,
     }
@@ -351,6 +369,7 @@ mod tests {
             host: "example.invalid".into(),
             user: "user".into(),
             fullscreen: true,
+            software_rendering: false,
             multi_monitor: true,
             monitors: "1".into(),
             certificate: CertificatePolicy::Ignore,
@@ -359,6 +378,8 @@ mod tests {
         let result = test_connection(profile.clone(), &client, "secret-password").unwrap();
         assert_eq!(result.kind, "credentials");
         assert!(!result.details.contains("secret-password"));
+        assert!(result.command.contains("'/p:secret-password'"));
+        assert!(result.command.contains("'+auth-only'"));
         assert_eq!(fs::read_to_string(&args).unwrap(), "/args-from:stdin\n");
         let input = fs::read_to_string(args.with_extension("stdin")).unwrap();
         assert!(input.contains("+auth-only\n/sec:nla\n"));

@@ -29,7 +29,7 @@ jobs:
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
       - name: Build client
         run: make build
-      - name: Package tarball, RPM, DEB, and matching sources
+      - name: Package client tarball, test DEB, and matching sources
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
@@ -58,11 +58,6 @@ jobs:
           test ! -e /usr/bin/rdpctl
           test ! -e /opt/freerdp-portable
           dpkg-deb --info output/*.deb
-      - name: Check RPM metadata
-        run: |
-          sudo apt-get install -y rpm
-          rpm -qp --requires output/*.rpm
-          rpm -qpl output/*.rpm
       - name: Verify checksums and public artifact contents
         run: |
           (cd output && sha256sum --check SHA256SUMS)
@@ -73,7 +68,6 @@ jobs:
           if-no-files-found: error
           path: |
             output/*.tar.gz
-            output/*.rpm
             output/*.deb
             output/SHA256SUMS
 

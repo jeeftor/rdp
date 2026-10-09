@@ -21,7 +21,6 @@ cp desktop/patches/glib/LICENSE desktop/patches/glib/COPYRIGHT desktop/patches/R
 # envsubst needs literal variable names, rather than their values.
 # shellcheck disable=SC2016
 envsubst '${PACKAGE_VERSION} ${GUI_BINARY} ${GUI_LICENSES}' < packaging/gui-nfpm.yaml > .build/gui-nfpm.yaml
-nfpm package --config .build/gui-nfpm.yaml --packager rpm --target "output/rdpctl-gui-${PACKAGE_VERSION}.x86_64.rpm"
 nfpm package --config .build/gui-nfpm.yaml --packager deb --target "output/rdpctl-gui_${PACKAGE_VERSION}_amd64.deb"
 tar -czf "output/rdpctl-gui-${PACKAGE_VERSION}-sources.tar.gz" -C .build gui-sources
-(cd output && sha256sum rdpctl-gui*.rpm rdpctl-gui*.deb rdpctl-gui*-sources.tar.gz > GUI-SHA256SUMS)
+(cd output && sha256sum rdpctl-gui*.deb rdpctl-gui*-sources.tar.gz > GUI-SHA256SUMS)

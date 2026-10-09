@@ -92,3 +92,39 @@ func TestRemoveRejectsUnmanagedLauncher(t *testing.T) {
 		t.Fatal("RemoveShortcut accepted an unmanaged launcher")
 	}
 }
+
+func TestSoftwareRenderingRequiresX11AndPassesExplicitEnvironment(t *testing.T) {
+	root := t.TempDir()
+	store := testStore(root)
+	executable := filepath.Join(root, "bin", "rdpctl")
+	if err := os.MkdirAll(filepath.Dir(executable), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "freerdp"), []byte("fixture"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	store.executable = func() (string, error) { return executable, nil }
+	profile, err := store.Save(Profile{Name: "Software", Host: "host", User: "user", SoftwareRendering: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	store.run = func(name string, args ...string) error {
+		calls++
+		if name != "env" || len(args) < 4 || args[0] != "SDL_VIDEODRIVER=x11" || args[1] != "SDL_RENDER_DRIVER=software" || args[2] != "SDL_FRAMEBUFFER_ACCELERATION=0" || args[3] != filepath.Join(root, "freerdp") {
+			t.Fatalf("command %s %v", name, args)
+		}
+		return nil
+	}
+	t.Setenv("DISPLAY", "")
+	if store.Launch(profile.ID) == nil || calls != 0 {
+		t.Fatal("launch without X11 display accepted")
+	}
+	t.Setenv("DISPLAY", ":42")
+	if err := store.Launch(profile.ID); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("launch calls %d", calls)
+	}
+}

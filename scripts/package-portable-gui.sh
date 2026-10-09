@@ -76,4 +76,4 @@ nfpm package --config .build/portable-rpm-nfpm.yaml --packager rpm --target "out
 nfpm package --config .build/portable-nfpm.yaml --packager deb --target "output/rdpctl-portable_${PACKAGE_VERSION}_amd64.deb"
 tar -czf "output/$name.tar.gz" -C .build "$name"
 tar -czf "output/rdpctl-portable-${PACKAGE_VERSION}-sources.tar.gz" -C .build portable-sources
-(cd output && sha256sum rdpctl-gui*.rpm rdpctl-gui*.deb rdpctl-gui*-sources.tar.gz rdp-*.rpm rdpctl-portable*.deb rdpctl-portable*.tar.gz rdpctl-portable*.AppImage > GUI-SHA256SUMS)
+(cd output && sha256sum rdpctl-gui*.deb rdpctl-gui*-sources.tar.gz rdp-*.rpm rdpctl-portable*.deb rdpctl-portable*.tar.gz rdpctl-portable*.AppImage > GUI-SHA256SUMS)

@@ -26,13 +26,14 @@
           <option value="ignore">Ignore certificate checks</option>
         </select></label>
         <label id="new-fingerprint" hidden>SHA-256 fingerprint<input name="fingerprint" maxlength="95"></label>
+        <label class="check"><input type="checkbox" name="software_rendering"> Use X11 software rendering (requires DISPLAY / XWayland)</label>
         <label class="check"><input type="checkbox" name="fullscreen"> Full screen</label>
         <label class="check"><input type="checkbox" name="multi_monitor"> Use multiple monitors</label>
         <fieldset><legend>Monitors <span>(optional)</span></legend><div id="monitors"><p class="hint">Use the default monitors, or detect your displays.</p></div><button id="detect-monitors" type="button">Detect displays</button></fieldset>
         <p class="hint">Select displays to use for this connection. Leave all unchecked to use FreeRDP’s defaults.</p>
         <button class="primary" type="submit">Save connection</button>
       </form>
-      <p class="hint">Saved passwords stay on this machine. Launch and test commands printed to your terminal include passwords.</p>
+      <p class="hint">Saved passwords stay on this machine. The GUI connection log and terminal output show full commands, including passwords.</p>
     </aside>
   </main>
   <footer><p id="status" role="status" aria-live="polite">Loading your saved connections…</p></footer>

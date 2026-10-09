@@ -2,6 +2,7 @@ const status = document.querySelector('#status');
 const connections = document.querySelector('#connections');
 const form = document.querySelector('#profile-form');
 const tauri = window.__TAURI__;
+const sessionLogs = new Map();
 
 function message(text, error = false) {
   status.textContent = text;
@@ -30,8 +31,28 @@ function field(text, input) {
 
 async function addConnectionActions(card, profile) {
   const options = element('details');
-  options.append(element('summary', 'Password and certificate settings'));
+  options.append(element('summary', 'Edit connection'));
   const editor = element('form');
+  const fields = {};
+  for (const [name, label, maximum] of [['name', 'Name', 160], ['host', 'Host', 255], ['user', 'User', 255], ['monitors', 'Monitor IDs (comma-separated, optional)', 255]]) {
+    const input = document.createElement('input');
+    input.name = name;
+    input.value = profile[name] || '';
+    input.maxLength = maximum;
+    input.required = name !== 'monitors';
+    fields[name] = input;
+    editor.append(field(label, input));
+  }
+  for (const [name, label] of [['fullscreen', 'Full screen'], ['multi_monitor', 'Use multiple monitors'], ['software_rendering', 'Use X11 software rendering (requires DISPLAY / XWayland)']]) {
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.name = name;
+    input.checked = Boolean(profile[name]);
+    fields[name] = input;
+    const labelNode = element('label', '', 'check');
+    labelNode.append(input, document.createTextNode(label));
+    editor.append(labelNode);
+  }
   const password = document.createElement('input');
   password.type = 'password';
   password.name = 'password';
@@ -78,7 +99,7 @@ async function addConnectionActions(card, profile) {
   policy.addEventListener('change', showPolicy);
   showPolicy();
   editor.append(field('Server certificate', policy), hint, fingerprintLabel);
-  const save = element('button', 'Save settings');
+  const save = element('button', 'Save connection');
   save.type = 'submit';
   const forget = button('Forget saved password', async () => {
     try {
@@ -94,7 +115,13 @@ async function addConnectionActions(card, profile) {
   options.append(editor);
   async function applySettings() {
     const entered = password.value || null;
-    profile = await tauri.core.invoke('update_profile', { profile: { ...profile, certificate: policy.value, fingerprint: fingerprint.value } });
+    if (!editor.reportValidity()) throw new Error('Complete the required connection fields.');
+    const values = Object.fromEntries(Object.entries(fields).map(([name, input]) => [name, input.type === 'checkbox' ? input.checked : input.value]));
+    profile = await tauri.core.invoke('update_profile', { profile: { ...profile, ...values, certificate: policy.value, fingerprint: fingerprint.value } });
+    card.querySelector('h2').textContent = profile.name;
+    card.querySelector('.host').textContent = profile.host;
+    card.querySelector('.username').textContent = profile.user;
+    card.querySelector('.display-settings').textContent = displaySettings(profile);
     if (entered && remember.checked) {
       await tauri.core.invoke('save_password', { id: profile.id, password: entered });
       await refreshPasswordStatus();
@@ -112,14 +139,32 @@ async function addConnectionActions(card, profile) {
     finally { save.disabled = false; }
   });
   const result = element('div', '', 'test-result');
+  const commandLog = element('details', '', 'command-log');
+  const commandText = element('pre', 'Connect or test to see the exact FreeRDP command.', 'command');
+  const outputText = element('pre', '', 'session-output');
+  commandLog.append(element('summary', 'FreeRDP command and connection log'), element('p', 'Commands include your password.', 'hint'), commandText,
+    button('Copy command', async () => {
+      try { await navigator.clipboard.writeText(commandText.textContent); message('Copied FreeRDP command.'); }
+      catch (_) {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(commandText);
+        selection.removeAllRanges(); selection.addRange(range);
+        message('Command selected. Press Ctrl+C to copy.');
+      }
+    }), outputText);
+  sessionLogs.set(profile.id, outputText);
   async function run(testing) {
     connect.disabled = test.disabled = true;
     result.replaceChildren();
+    outputText.textContent = "";
+    commandLog.open = true;
     try {
       const entered = await applySettings();
       if (testing) {
         message(`Testing ${profile.name}…`);
         const outcome = await tauri.core.invoke('test_profile', { id: profile.id, password: entered });
+        commandText.textContent = outcome.command;
         result.classList.toggle('error', !outcome.success);
         result.append(element('p', outcome.summary));
         if (outcome.runtime_warning) result.append(element('p', outcome.runtime_warning));
@@ -155,7 +200,8 @@ async function addConnectionActions(card, profile) {
         result.append(log);
         message(`${profile.name}: ${outcome.summary}`, !outcome.success);
       } else {
-        await tauri.core.invoke('launch_profile', { id: profile.id, password: entered });
+        const launched = await tauri.core.invoke('launch_profile', { id: profile.id, password: entered });
+        commandText.textContent = launched.command;
         message(`Launched ${profile.name}. Continue in the FreeRDP window.`);
       }
       password.value = '';
@@ -166,22 +212,28 @@ async function addConnectionActions(card, profile) {
   const test = button('Test connection', () => run(true));
   const actions = element('div', '', 'actions');
   actions.append(connect, test);
-  card.append(actions, options, result);
+  card.append(actions, options, result, commandLog);
+}
+
+function displaySettings(profile) {
+  const settings = [profile.fullscreen ? 'Full screen' : 'Windowed', profile.multi_monitor ? 'Multiple monitors' : 'Single monitor'];
+  if (profile.monitors) settings.push(`Monitors ${profile.monitors}`);
+  if (profile.software_rendering) settings.push('X11 software rendering');
+  return settings.join(' · ');
 }
 
 async function refresh() {
   try {
     const profiles = await tauri.core.invoke('list_profiles');
     connections.replaceChildren();
+    sessionLogs.clear();
     if (!profiles.length) {
       connections.append(element('h2', 'Ready for your first connection'), element('p', 'Save a host and username to get started.', 'hint'));
     }
     for (const profile of profiles) {
       const card = element('article', '', 'connection');
-      card.append(element('h2', profile.name), element('p', profile.host), element('p', profile.user, 'hint'));
-      const settings = [profile.fullscreen ? 'Full screen' : 'Windowed', profile.multi_monitor ? 'Multiple monitors' : 'Single monitor'];
-      if (profile.monitors) settings.push(`Monitors ${profile.monitors}`);
-      card.append(element('p', settings.join(' · '), 'hint'));
+      card.append(element('h2', profile.name), element('p', profile.host, 'host'), element('p', profile.user, 'username hint'));
+      card.append(element('p', displaySettings(profile), 'display-settings hint'));
       await addConnectionActions(card, profile);
       connections.append(card);
     }
@@ -204,7 +256,7 @@ form.addEventListener('submit', async (event) => {
   try {
     const profile = await tauri.core.invoke('create_profile', { profile: {
       id: '', name: values.get('name'), host: values.get('host'), user: values.get('user'),
-      fullscreen: values.has('fullscreen'), multi_monitor: values.has('multi_monitor'), monitors: values.getAll('monitor').join(','),
+      software_rendering: values.has('software_rendering'), fullscreen: values.has('fullscreen'), multi_monitor: values.has('multi_monitor'), monitors: values.getAll('monitor').join(','),
       certificate: values.get('certificate'), fingerprint: values.get('fingerprint'),
     } });
     if (values.get('password') && values.has('remember_password')) {
@@ -252,6 +304,13 @@ document.querySelector('#detect-monitors').addEventListener('click', async (even
   }
 });
 if (tauri) {
+  await tauri.event.listen('session-log', ({ payload }) => {
+    const log = sessionLogs.get(payload.id);
+    if (log) log.textContent = (log.textContent + payload.line + '\n').slice(-65536);
+    if (payload.line.includes('Window framebuffer support not available')) {
+      message('FreeRDP could not render the desktop. Try X11 software rendering in Edit connection, or check the host EGL/graphics drivers.', true);
+    }
+  });
   await tauri.event.listen('session-ended', ({ payload }) => {
     message(payload.success ? `${payload.name} closed.` : `${payload.name} exited with ${payload.code ?? 'no exit code'}. Use Test connection for diagnostics.`, !payload.success);
   });

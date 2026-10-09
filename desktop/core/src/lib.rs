@@ -31,6 +31,8 @@ pub struct Profile {
     #[serde(default)]
     pub fullscreen: bool,
     #[serde(default)]
+    pub software_rendering: bool,
+    #[serde(default)]
     pub multi_monitor: bool,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub monitors: String,
@@ -315,9 +317,26 @@ impl Store {
 }
 
 /// Start the selected profile through an explicit FreeRDP wrapper path.
-pub fn launch(profile: Profile, client: &Path, password: Option<&str>) -> Result<Child, String> {
+pub fn launch(
+    profile: Profile,
+    client: &Path,
+    password: Option<&str>,
+) -> Result<(Child, String), String> {
     let profile = profile.validate()?;
-    connection::spawn(&mut Command::new(client), profile.arguments(), password)
+    let mut command = Command::new(client);
+    if profile.software_rendering {
+        if std::env::var_os("DISPLAY").is_none_or(|value| value.is_empty()) {
+            return Err("X11 software rendering requires DISPLAY. Launch from an X11 desktop or a Wayland desktop with XWayland enabled.".into());
+        }
+        command
+            .env("SDL_VIDEODRIVER", "x11")
+            .env("SDL_RENDER_DRIVER", "software")
+            .env("SDL_FRAMEBUFFER_ACCELERATION", "0");
+    }
+    command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    connection::spawn(&mut command, profile.arguments(), password)
 }
 
 /// Accept a SHA-256 fingerprint in compact or colon-separated form.
@@ -391,6 +410,7 @@ mod tests {
             host: "windows.example.invalid".into(),
             user: "DOMAIN\\user".into(),
             fullscreen: true,
+            software_rendering: false,
             multi_monitor: true,
             monitors: "0,1".into(),
             certificate: CertificatePolicy::Verify,
@@ -571,6 +591,7 @@ mod tests {
         fs::set_permissions(&client, fs::Permissions::from_mode(0o700)).unwrap();
         assert!(launch(profile(), &client, None)
             .unwrap()
+            .0
             .wait()
             .unwrap()
             .success());

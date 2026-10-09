@@ -17,13 +17,14 @@ const managedLauncherKey = "X-RDPCTL-Managed=true"
 
 // Profile is a password-free FreeRDP connection definition.
 type Profile struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Host         string `json:"host"`
-	User         string `json:"user"`
-	Fullscreen   bool   `json:"fullscreen"`
-	MultiMonitor bool   `json:"multi_monitor"`
-	Monitors     string `json:"monitors,omitempty"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Host              string `json:"host"`
+	User              string `json:"user"`
+	Fullscreen        bool   `json:"fullscreen"`
+	SoftwareRendering bool   `json:"software_rendering,omitempty"`
+	MultiMonitor      bool   `json:"multi_monitor"`
+	Monitors          string `json:"monitors,omitempty"`
 }
 
 // Store manages profiles below the current user's XDG directories.
@@ -215,6 +216,12 @@ func (s *Store) Launch(id string) error {
 	}
 	if profile.Fullscreen {
 		args = append(args, "/f")
+	}
+	if profile.SoftwareRendering {
+		if os.Getenv("DISPLAY") == "" {
+			return errors.New("X11 software rendering requires DISPLAY; use an X11 desktop or enable XWayland")
+		}
+		return s.run("env", append([]string{"SDL_VIDEODRIVER=x11", "SDL_RENDER_DRIVER=software", "SDL_FRAMEBUFFER_ACCELERATION=0", client}, args...)...)
 	}
 	return s.run(client, args...)
 }

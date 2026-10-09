@@ -2,6 +2,7 @@
 
 use rdpctl_core::{Profile, Store};
 use serde::Serialize;
+use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use tauri::Emitter;
 
@@ -83,6 +84,34 @@ async fn test_profile(
     .map_err(|error| error.to_string())?
 }
 
+#[derive(Serialize)]
+struct LaunchResult {
+    pid: u32,
+    command: String,
+}
+
+#[derive(Clone, Serialize)]
+struct SessionLog {
+    id: String,
+    line: String,
+}
+
+fn relay_log(app: tauri::AppHandle, id: String, output: impl Read + Send + 'static) {
+    std::thread::spawn(move || {
+        for line in BufReader::new(output).lines() {
+            let Ok(line) = line else { break };
+            eprintln!("{line}");
+            let _ = app.emit(
+                "session-log",
+                SessionLog {
+                    id: id.clone(),
+                    line,
+                },
+            );
+        }
+    });
+}
+
 #[derive(Clone, Serialize)]
 struct SessionEnded {
     name: String,
@@ -96,7 +125,7 @@ fn launch_profile(
     app: tauri::AppHandle,
     id: String,
     password: Option<String>,
-) -> Result<u32, String> {
+) -> Result<LaunchResult, String> {
     let store = Store::from_environment()?;
     let profile = store.load(&id)?;
     let password = match password {
@@ -106,7 +135,13 @@ fn launch_profile(
     // Only the local environment can override the client; the webview supplies an ID.
     let client = client_path()?;
     let name = profile.name.clone();
-    let mut child = rdpctl_core::launch(profile, &client, password.as_deref())?;
+    let (mut child, command) = rdpctl_core::launch(profile, &client, password.as_deref())?;
+    if let Some(output) = child.stdout.take() {
+        relay_log(app.clone(), id.clone(), output);
+    }
+    if let Some(output) = child.stderr.take() {
+        relay_log(app.clone(), id, output);
+    }
     let pid = child.id();
     std::thread::spawn(move || {
         let status = child.wait();
@@ -118,7 +153,7 @@ fn launch_profile(
         };
         let _ = app.emit("session-ended", event);
     });
-    Ok(pid)
+    Ok(LaunchResult { pid, command })
 }
 
 fn main() {
