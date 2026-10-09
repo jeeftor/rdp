@@ -46,12 +46,14 @@ pub(crate) fn spawn(
     } else {
         command.args(&arguments);
     }
-    let copyable = copyable_command(command, &arguments);
     let purpose = if arguments.iter().any(|argument| argument == "+auth-only") {
+        // The wrapper cannot see authentication arguments passed through stdin.
+        command.env("RDPCTL_SKIP_RENDER_PROBE", "1");
         "authentication test (+auth-only does not open a desktop)"
     } else {
         "desktop connection"
     };
+    let copyable = copyable_command(command, &arguments);
     // The air-gap operator explicitly wants a full command, including credentials.
     eprintln!(
         "FreeRDP {purpose} command (includes password; copyable equivalent to stdin arguments): {}",

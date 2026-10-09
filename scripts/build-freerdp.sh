@@ -94,3 +94,4 @@ for backend in X11 WAYLAND; do
 done
 CGO_ENABLED=0 go build -C "$root" -trimpath -ldflags='-s -w' -o "$prefix/bin/rdpctl" ./cmd/rdpctl
 cc "$root/tests/sdl-backends.c" -o "$work/sdl-backends" -I"$prefix/include" -L"$prefix/lib" -lSDL3
+cc -Wall -Wextra -Werror "$root/scripts/render-probe.c" -o "$prefix/bin/rdp-render-probe" -I"$prefix/include" -L"$prefix/lib" -lSDL3

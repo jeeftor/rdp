@@ -30,8 +30,12 @@ password when you invoke it without credentials. The desktop manager can save
 plaintext passwords locally and shows full copyable commands and live FreeRDP
 output in the GUI log and terminal, including passwords.
 
-The wrapper selects native Wayland when `WAYLAND_DISPLAY` is set and X11 when
-only `DISPLAY` is set. You can choose explicitly:
+The wrapper probes actual SDL frame presentation before opening a desktop or
+detecting monitors. It tries Wayland OpenGL/OpenGL ES, then X11 when available,
+and selects the first working path. Software rendering remains an explicit
+option. Each candidate is bounded to three seconds. Authentication-only tests,
+version and help commands do not require a graphics probe. You can still choose
+a backend explicitly:
 
 ```bash
 SDL_VIDEODRIVER=wayland ./freerdp /list:monitor

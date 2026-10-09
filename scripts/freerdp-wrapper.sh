@@ -5,13 +5,16 @@ base="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 export LD_LIBRARY_PATH="$base/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # Providers are loaded dynamically and must match the bundled libcrypto.
 export OPENSSL_MODULES="${OPENSSL_MODULES:-$base/lib/ossl-modules}"
-# Prefer the native session backend while retaining your explicit override.
-if [[ -z "${SDL_VIDEODRIVER:-}" ]]; then
-  if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
-    export SDL_VIDEODRIVER=wayland
-  elif [[ -n "${DISPLAY:-}" ]]; then
-    export SDL_VIDEODRIVER=x11
-  fi
+# Authentication and informational commands must work without a desktop renderer.
+probe=true
+for argument in "$@"; do
+  case "$argument" in /version|/buildconfig|/help|--help|+auth-only) probe=false ;; esac
+done
+if [[ "${RDPCTL_SKIP_RENDER_PROBE:-}" != 1 && -z "${SDL_VIDEO_DRIVER:-}${SDL_VIDEODRIVER:-}" ]] && "$probe"; then
+  selection="$("$base/bin/rdp-render-probe")" || exit 1
+  export SDL_VIDEO_DRIVER="${selection%%|*}"
+  export SDL_VIDEODRIVER="$SDL_VIDEO_DRIVER"
+  export SDL_RENDER_DRIVER="${selection#*|}"
 fi
 export XKB_CONFIG_ROOT="${XKB_CONFIG_ROOT:-/usr/share/X11/xkb}"
 for plugin_dir in "$base"/lib/freerdp*; do

@@ -13,6 +13,7 @@ mkdir -p "$bundle/bin" "$bundle/lib" "$bundle/LICENSES" "$output" "$work/launche
 client="$(find "$prefix/bin" -maxdepth 1 -type f \( -name sdl-freerdp -o -name sdl-freerdp3 \) -print -quit)"
 [[ -n "$client" ]] || { echo 'FreeRDP SDL3 client missing.' >&2; exit 1; }
 cp "$client" "$prefix/bin/rdpctl" "$bundle/bin/"
+cp "$prefix/bin/rdp-render-probe" "$bundle/bin/"
 cp -a "$prefix/lib/." "$bundle/lib/"
 rm -rf "$bundle/lib/cmake" "$bundle/lib/pkgconfig"
 find "$bundle/lib" -type f -name '*.a' -delete

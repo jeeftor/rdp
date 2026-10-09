@@ -321,15 +321,54 @@ impl Store {
     }
 }
 
-fn configure_rendering(command: &mut Command, software_rendering: bool) -> Result<(), String> {
+fn configure_rendering(
+    command: &mut Command,
+    client: &Path,
+    software_rendering: bool,
+) -> Result<(), String> {
     if software_rendering {
         if std::env::var_os("DISPLAY").is_none_or(|value| value.is_empty()) {
             return Err("X11 software rendering requires DISPLAY. Launch from an X11 desktop or a Wayland desktop with XWayland enabled.".into());
         }
         command
+            .env("SDL_VIDEO_DRIVER", "x11")
             .env("SDL_VIDEODRIVER", "x11")
             .env("SDL_RENDER_DRIVER", "software")
             .env("SDL_FRAMEBUFFER_ACCELERATION", "0");
+    } else if std::env::var_os("SDL_VIDEO_DRIVER").is_none_or(|v| v.is_empty())
+        && std::env::var_os("SDL_VIDEODRIVER").is_none_or(|v| v.is_empty())
+    {
+        // Older installed bundles and test clients do not have the probe yet.
+        if let Some(base) = client.parent() {
+            let probe = base.join("bin/rdp-render-probe");
+            if probe.is_file() {
+                let mut paths = vec![base.join("lib")];
+                if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH") {
+                    paths.extend(std::env::split_paths(&existing));
+                }
+                let output = Command::new(&probe)
+                    .env(
+                        "LD_LIBRARY_PATH",
+                        std::env::join_paths(paths).map_err(|e| e.to_string())?,
+                    )
+                    .output()
+                    .map_err(|e| format!("Cannot probe desktop graphics: {e}"))?;
+                let details = String::from_utf8_lossy(&output.stderr);
+                eprint!("{details}");
+                if !output.status.success() {
+                    return Err(format!("Desktop graphics detection failed: {details}"));
+                }
+                let selection = String::from_utf8_lossy(&output.stdout);
+                let (backend, renderer) = selection
+                    .trim()
+                    .split_once('|')
+                    .ok_or("Desktop graphics probe returned an invalid selection")?;
+                command
+                    .env("SDL_VIDEO_DRIVER", backend)
+                    .env("SDL_VIDEODRIVER", backend)
+                    .env("SDL_RENDER_DRIVER", renderer);
+            }
+        }
     }
     Ok(())
 }
@@ -342,7 +381,7 @@ pub fn launch(
 ) -> Result<(Child, String), String> {
     let profile = profile.validate()?;
     let mut command = Command::new(client);
-    configure_rendering(&mut command, profile.software_rendering)?;
+    configure_rendering(&mut command, client, profile.software_rendering)?;
     command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -396,7 +435,7 @@ pub fn parse_monitors(output: &str) -> Result<Vec<Monitor>, String> {
 /// Ask the installed client for its current Wayland or X11 displays.
 pub fn list_monitors(client: &Path, software_rendering: bool) -> Result<Vec<Monitor>, String> {
     let mut command = Command::new(client);
-    configure_rendering(&mut command, software_rendering)?;
+    configure_rendering(&mut command, client, software_rendering)?;
     let output = command
         .arg("/list:monitor")
         .output()
@@ -428,6 +467,32 @@ mod tests {
             certificate: CertificatePolicy::Verify,
             fingerprint: String::new(),
         }
+    }
+
+    #[test]
+    fn selected_gpu_backend_is_used_for_command_and_monitors() {
+        let _guard = PROCESS_TEST_LOCK.lock().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let base = directory.path();
+        fs::create_dir_all(base.join("bin")).unwrap();
+        let probe = base.join("bin/rdp-render-probe");
+        fs::write(&probe, "#!/bin/sh\nprintf 'x11|opengl\\n'\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&probe, fs::Permissions::from_mode(0o755)).unwrap();
+        let client = base.join("freerdp");
+        fs::write(&client, "#!/bin/sh\ntest \"$SDL_VIDEO_DRIVER/$SDL_RENDER_DRIVER\" = x11/opengl || exit 1\nprintf 'listing 1 monitors:\\n [1] [Monitor] 1920x1080 +0+0\\n'\n").unwrap();
+        fs::set_permissions(&client, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut command = Command::new(&client);
+        configure_rendering(&mut command, &client, false).unwrap();
+        let env: Vec<_> = command.get_envs().collect();
+        assert!(env.iter().any(
+            |(key, value)| *key == "SDL_RENDER_DRIVER" && value.is_some_and(|v| v == "opengl")
+        ));
+        assert_eq!(list_monitors(&client, false).unwrap()[0].id, 1);
+        fs::write(&probe, "#!/bin/sh\necho 'GPU unavailable' >&2\nexit 1\n").unwrap();
+        assert!(configure_rendering(&mut command, &client, false)
+            .unwrap_err()
+            .contains("GPU unavailable"));
     }
 
     #[test]

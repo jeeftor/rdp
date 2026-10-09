@@ -98,6 +98,21 @@ for Wayland. These normally come from your logged-in desktop session; do not
 point them at arbitrary directories. `XKB_CONFIG_ROOT` refers to host keyboard
 data and defaults to `/usr/share/X11/xkb`.
 
+The launcher probes the bundled SDL library before a desktop connection or
+monitor detection. It tests window creation, a target texture and frame
+presentation, trying Wayland OpenGL/OpenGL ES first and then X11 when available.
+It selects the first working path and includes the selected backend and renderer
+in the GUI's copyable desktop command. Probe diagnostics include the OpenGL device
+name when available. Each candidate has a three-second timeout. This detects a
+working rendering path; Mesa may still provide CPU rendering if hardware is
+unavailable. Explicit SDL backend overrides are respected. Authentication tests
+and version/help commands do not require the graphics probe.
+
+There is no automatic fallback to SDL software rendering. Existing monitor IDs
+can differ after a backend change; use **Detect displays for this connection**
+to select current IDs. Bundles installed before this feature keep their existing
+behavior until updated.
+
 If GPU renderer creation fails and you see `Window framebuffer support not
 available`, try **Use X11 software rendering** in **Edit connection**. It uses
 `SDL_VIDEODRIVER=x11 SDL_RENDER_DRIVER=software SDL_FRAMEBUFFER_ACCELERATION=0`,

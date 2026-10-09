@@ -17,6 +17,9 @@ check_monitors() {
 xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 "$root/.build/sdl-backends" x11
 xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 SDL_RENDER_DRIVER=software SDL_FRAMEBUFFER_ACCELERATION=0 "$root/.build/sdl-backends" x11 software
 check_monitors xvfb-run -a env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11
+# A stale/unusable Wayland socket must fall back to X11/OpenGL, never software.
+selection="$(xvfb-run -a env -u SDL_VIDEO_DRIVER -u SDL_VIDEODRIVER -u SDL_RENDER_DRIVER WAYLAND_DISPLAY=rdp-missing "$bundle/bin/rdp-render-probe")"
+[[ "$selection" == 'x11|opengl' || "$selection" == 'x11|opengles2' ]]
 export XDG_RUNTIME_DIR
 XDG_RUNTIME_DIR="$(mktemp -d)"
 chmod 700 "$XDG_RUNTIME_DIR"
