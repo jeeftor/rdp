@@ -2,14 +2,68 @@
 
 The Rust/Tauri desktop app is the graphical connection manager for the Linux
 FreeRDP bundle. Save a host and username, select your displays, and click
-**Connect**. FreeRDP opens its own native window and prompts for your password.
-The GUI reports process launch and exit; it does not claim that authentication
-or the remote connection succeeded.
+**Connect**. FreeRDP opens its own native window. Under **Password and certificate
+settings**, enter a password and optionally save it in plaintext on this machine.
+Leave the field empty to use your saved password; without one, FreeRDP prompts
+when connecting. **Forget saved password** removes only that connection's password.
 
 Profiles use the existing `~/.config/rdpctl/connections/*.json` format, respecting
 `XDG_CONFIG_HOME`. The GUI lists existing profiles and creates new ones with
 private permissions. Duplicate names/IDs are rejected without overwriting files.
-Editing, deletion, and password storage are outside this first version.
+Certificate settings can be updated without recreating a profile. Plaintext
+passwords are stored separately in `connections/passwords/<id>` with directory
+mode 700 and file mode 600. Profile JSON still contains no password, preserving
+compatibility with the terminal app. The terminal app does not use saved GUI
+passwords or GUI certificate settings.
+
+## Test a connection and handle certificates
+
+**Test connection** checks NLA authentication using `+auth-only /sec:nla`, your
+current certificate setting and entered/saved password. It does not open a
+remote desktop. The test has a 20-second deadline and distinguishes network,
+certificate, changed-certificate, credential, and crypto-runtime failures. A
+successful test proves NLA authentication, not desktop or monitor behavior.
+
+Choose a policy for each connection:
+
+- **Verify certificate**: require trusted certificate/name verification or
+  an already remembered matching certificate; reject unresolved trust.
+- **Trust on first use**: accept and remember the first certificate, including
+  during a test; reject a changed certificate.
+- **Pin SHA-256 fingerprint**: accept the specified fingerprint. A failed test
+  can populate this field; compare it with your server before saving/testing.
+- **Ignore certificate checks**: accept any certificate for this connection.
+
+If a remembered certificate needs replacing, **Back up remembered certificate**
+followed by **Confirm certificate backup** moves only the selected host/port's
+`freerdp/server/HOST_PORT.pem` to a timestamped `.pem.previous-*` backup. It
+does not automatically trust the new certificate or change your policy.
+
+Every launch and test prints a shell-quoted, copyable FreeRDP command to standard
+error, including the password. The actual launch passes arguments through
+standard input when using a password. To keep terminal output locally:
+
+```bash
+rdpctl-gui 2>&1 | tee rdpctl.log
+```
+
+The portable client bundles OpenSSL's matching `legacy.so` and selects it through
+`OPENSSL_MODULES`. Packaging checks provider loading and MD4 for NTLM. Host
+graphics drivers/EGL remain system requirements; renderer warnings are separate
+from certificate or authentication failures. Missing `canberra-gtk-module` or
+`pk-gtk-module` is an optional desktop-integration warning, not an RDP failure.
+
+To isolate GPU/EGL warnings, try software rendering for one launch:
+
+```bash
+SDL_RENDER_DRIVER=software rdpctl-gui
+```
+
+This uses SDL's [renderer selection](https://wiki.libsdl.org/SDL3/SDL_HINT_RENDER_DRIVER)
+for the inherited client process and does not change your system graphics setup.
+The `WITH_VERBOSE_WINPR_ASSERT` build warning is diagnostic information; the
+certificate rejection and unavailable MD4 are the connection blockers in the
+reported log.
 
 ## Build and run
 
@@ -93,4 +147,5 @@ for packaging.
 The tests use a temporary profile directory and a fake client to verify the
 real GUI-to-Rust-to-process boundary without connecting to a remote host. They
 verify profile compatibility, monitor selection, exact launch arguments, safe
-text rendering, private files, and protection against duplicate overwrites.
+text rendering, private files, plaintext password storage, authentication-test
+results, explicit certificate backup and protection against duplicate overwrites.

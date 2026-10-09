@@ -6,6 +6,20 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 
+mod connection;
+pub use connection::{test_connection, TestResult};
+
+/// How FreeRDP checks a server certificate for this connection.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CertificatePolicy {
+    #[default]
+    Verify,
+    Tofu,
+    Fingerprint,
+    Ignore,
+}
+
 /// A connection using the same password-free format as the Go terminal app.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Profile {
@@ -20,6 +34,10 @@ pub struct Profile {
     pub multi_monitor: bool,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub monitors: String,
+    #[serde(default)]
+    pub certificate: CertificatePolicy,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub fingerprint: String,
 }
 
 /// Generate the stable filename used by the terminal app.
@@ -42,6 +60,11 @@ impl Profile {
         self.host = self.host.trim().to_owned();
         self.user = self.user.trim().to_owned();
         self.monitors = self.monitors.trim().to_owned();
+        if self.certificate == CertificatePolicy::Fingerprint {
+            self.fingerprint = normalize_fingerprint(&self.fingerprint)?;
+        } else {
+            self.fingerprint.clear();
+        }
         if [&self.name, &self.host, &self.user]
             .iter()
             .any(|value| value.is_empty() || value.chars().any(char::is_control))
@@ -49,6 +72,9 @@ impl Profile {
             return Err(
                 "Name, host, and user are required and must not contain control characters.".into(),
             );
+        }
+        if self.name.len() > 160 || self.host.len() > 255 || self.user.len() > 255 {
+            return Err("Name must be at most 160 bytes; host and user at most 255 bytes.".into());
         }
         if !self.monitors.is_empty()
             && !self.monitors.split(',').all(|part| {
@@ -80,6 +106,14 @@ impl Profile {
         if self.fullscreen {
             arguments.push("/f".into());
         }
+        arguments.push(match self.certificate {
+            CertificatePolicy::Verify => "/cert:deny".into(),
+            CertificatePolicy::Tofu => "/cert:tofu".into(),
+            CertificatePolicy::Ignore => "/cert:ignore".into(),
+            CertificatePolicy::Fingerprint => {
+                format!("/cert:fingerprint:sha256:{}", self.fingerprint)
+            }
+        });
         arguments
     }
 }
@@ -185,15 +219,114 @@ impl Store {
             })?;
         Ok(profile)
     }
+
+    /// Update an existing profile while retaining its stable ID.
+    pub fn update(&self, profile: Profile) -> Result<Profile, String> {
+        let profile = profile.validate()?;
+        self.load(&profile.id)?;
+        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)
+            .map_err(|error| format!("Cannot create profile: {error}"))?;
+        serde_json::to_writer_pretty(&mut temporary, &profile)
+            .map_err(|error| error.to_string())?;
+        temporary
+            .write_all(b"\n")
+            .map_err(|error| error.to_string())?;
+        temporary
+            .persist(self.directory.join(format!("{}.json", profile.id)))
+            .map_err(|error| format!("Cannot update connection: {error}"))?;
+        Ok(profile)
+    }
+
+    fn password_path(&self, id: &str) -> Result<PathBuf, String> {
+        self.load(id)?;
+        Ok(self.directory.join("passwords").join(id))
+    }
+
+    /// Return a locally saved password without including it in profile JSON.
+    pub fn password(&self, id: &str) -> Result<Option<String>, String> {
+        match fs::read_to_string(self.password_path(id)?) {
+            Ok(password) => Ok(Some(password)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(format!("Cannot read saved password: {error}")),
+        }
+    }
+
+    /// Report saved-password presence without returning the secret to the webview.
+    pub fn has_password(&self, id: &str) -> Result<bool, String> {
+        Ok(self.password_path(id)?.is_file())
+    }
+
+    /// Save a plaintext password with private directory and file permissions.
+    pub fn save_password(&self, id: &str, password: &str) -> Result<(), String> {
+        connection::validate_password(password)?;
+        let path = self.password_path(id)?;
+        let directory = path.parent().ok_or("Cannot locate password directory.")?;
+        fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+                .map_err(|error| error.to_string())?;
+        }
+        let mut temporary =
+            tempfile::NamedTempFile::new_in(directory).map_err(|error| error.to_string())?;
+        temporary
+            .write_all(password.as_bytes())
+            .map_err(|error| error.to_string())?;
+        temporary.persist(path).map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    /// Remove only the password belonging to an existing connection.
+    pub fn forget_password(&self, id: &str) -> Result<(), String> {
+        match fs::remove_file(self.password_path(id)?) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!("Cannot forget password: {error}")),
+        }
+    }
+
+    /// Back up this host's remembered certificate so TOFU can accept its replacement.
+    pub fn forget_certificate(&self, id: &str) -> Result<bool, String> {
+        let profile = self.load(id)?;
+        let config = self
+            .directory
+            .parent()
+            .and_then(Path::parent)
+            .ok_or("Cannot locate certificate directory.")?;
+        let filename = connection::certificate_filename(&profile.host)?;
+        let path = config.join("freerdp/server").join(filename);
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.to_string()),
+        };
+        if !metadata.is_file() {
+            return Err("The saved certificate is not a regular file.".into());
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_nanos();
+        fs::rename(&path, path.with_extension(format!("pem.previous-{stamp}")))
+            .map_err(|error| format!("Cannot back up saved certificate: {error}"))?;
+        Ok(true)
+    }
 }
 
 /// Start the selected profile through an explicit FreeRDP wrapper path.
-pub fn launch(profile: Profile, client: &Path) -> Result<Child, String> {
+pub fn launch(profile: Profile, client: &Path, password: Option<&str>) -> Result<Child, String> {
     let profile = profile.validate()?;
-    Command::new(client)
-        .args(profile.arguments())
-        .spawn()
-        .map_err(|error| format!("Cannot launch FreeRDP at {}: {error}", client.display()))
+    connection::spawn(&mut Command::new(client), profile.arguments(), password)
+}
+
+/// Accept a SHA-256 fingerprint in compact or colon-separated form.
+pub fn normalize_fingerprint(value: &str) -> Result<String, String> {
+    let value = value.trim().replace(':', "").to_ascii_lowercase();
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("A SHA-256 fingerprint must contain 64 hexadecimal digits.".into());
+    }
+    Ok(value)
 }
 
 /// A display ID reported by the actual SDL FreeRDP client.
@@ -260,6 +393,8 @@ mod tests {
             fullscreen: true,
             multi_monitor: true,
             monitors: "0,1".into(),
+            certificate: CertificatePolicy::Verify,
+            fingerprint: String::new(),
         }
     }
 
@@ -301,6 +436,89 @@ mod tests {
     }
 
     #[test]
+    fn saves_replaces_and_forgets_private_plaintext_passwords() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::new(temporary.path().join("rdpctl/connections"));
+        let saved = store.create(profile()).unwrap();
+        assert!(!store.has_password(&saved.id).unwrap());
+        store.save_password(&saved.id, "one ' secret").unwrap();
+        assert_eq!(
+            store.password(&saved.id).unwrap().as_deref(),
+            Some("one ' secret")
+        );
+        let path = temporary
+            .path()
+            .join("rdpctl/connections/passwords/windows-lab");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "one ' secret");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(path.parent().unwrap())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+        }
+        store.save_password(&saved.id, "replacement").unwrap();
+        assert_eq!(
+            store.password(&saved.id).unwrap().as_deref(),
+            Some("replacement")
+        );
+        assert!(store.save_password("unknown", "secret").is_err());
+        assert!(store
+            .save_password(&saved.id, "secret\n/p:injected")
+            .is_err());
+        assert!(
+            !fs::read_to_string(temporary.path().join("rdpctl/connections/windows-lab.json"))
+                .unwrap()
+                .contains("replacement")
+        );
+        store.forget_password(&saved.id).unwrap();
+        assert_eq!(store.password(&saved.id).unwrap(), None);
+        store.forget_password(&saved.id).unwrap();
+    }
+
+    #[test]
+    fn persists_certificate_policy_and_backs_up_only_the_selected_host() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::new(temporary.path().join("rdpctl/connections"));
+        let mut saved = store.create(profile()).unwrap();
+        saved.certificate = CertificatePolicy::Fingerprint;
+        saved.fingerprint = "AB:".repeat(31) + "AB";
+        store.update(saved.clone()).unwrap();
+        assert_eq!(
+            store.load(&saved.id).unwrap().arguments().last().unwrap(),
+            &format!("/cert:fingerprint:sha256:{}", "ab".repeat(32))
+        );
+        let certificates = temporary.path().join("freerdp/server");
+        fs::create_dir_all(&certificates).unwrap();
+        let selected = certificates.join("windows.example.invalid_3389.pem");
+        let unrelated = certificates.join("other_3389.pem");
+        fs::write(&selected, "original certificate").unwrap();
+        fs::write(&unrelated, "unrelated certificate").unwrap();
+        assert!(store.forget_certificate(&saved.id).unwrap());
+        assert!(!selected.exists());
+        assert_eq!(
+            fs::read_to_string(&unrelated).unwrap(),
+            "unrelated certificate"
+        );
+        let backup = fs::read_dir(&certificates)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.to_string_lossy().contains(".pem.previous-"))
+            .unwrap();
+        assert_eq!(fs::read_to_string(backup).unwrap(), "original certificate");
+        assert!(!store.forget_certificate(&saved.id).unwrap());
+    }
+
+    #[test]
     fn accepts_existing_go_profile_without_monitors() {
         let temporary = tempfile::tempdir().unwrap();
         fs::write(temporary.path().join("existing.json"), r#"{"id":"existing","name":"Existing","host":"host.example.invalid","user":"user","fullscreen":false,"multi_monitor":false}"#).unwrap();
@@ -329,7 +547,8 @@ mod tests {
                 "/u:DOMAIN\\user",
                 "/multimon",
                 "/monitors:0,1",
-                "/f"
+                "/f",
+                "/cert:deny"
             ]
         );
     }
@@ -350,14 +569,14 @@ mod tests {
         )
         .unwrap();
         fs::set_permissions(&client, fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(launch(profile(), &client)
+        assert!(launch(profile(), &client, None)
             .unwrap()
             .wait()
             .unwrap()
             .success());
         assert_eq!(
             fs::read_to_string(output).unwrap(),
-            "/v:windows.example.invalid\n/u:DOMAIN\\user\n/multimon\n/monitors:0,1\n/f\n"
+            "/v:windows.example.invalid\n/u:DOMAIN\\user\n/multimon\n/monitors:0,1\n/f\n/cert:deny\n"
         );
     }
 }

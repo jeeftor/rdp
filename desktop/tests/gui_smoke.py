@@ -55,12 +55,21 @@ def main() -> None:
             "fullscreen": False, "multi_monitor": False,
         }
         (profiles / "existing.json").write_text(json.dumps(existing))
-        client = root / "freerdp"
+        client = root / "fake-freerdp"
         client.write_text(
             '#!/bin/sh\nif [ "$1" = /list:monitor ]; then\n'
             "  printf 'listing 2 monitors:\\n     * [1] [screen] 1280x1024\\t+0+0\\n       [3] [second] 1920x1080\\t+1280+0\\n'\n"
             "  exit 255\nfi\n"
-            f"printf '%s\\n' \"$@\" > '{root / 'arguments'}'\nsleep 1\n"
+            f"if [ \"$1\" = /args-from:stdin ]; then cat > '{root / 'arguments'}'; "
+            f"else printf '%s\\n' \"$@\" > '{root / 'arguments'}'; fi\n"
+            f"case \"$(cat '{root / 'arguments'}')\" in\n"
+            "  *+auth-only*)\n"
+            f"    case \"$(cat '{root / 'arguments'}')\" in\n"
+            "      */cert:fingerprint:sha256:*) exit 0 ;;\n"
+            "      *) printf 'certificate not trusted\\nThe fingerprint for the host key sent by the remote host is "
+            + "ab:" * 31 + "ab\\n'; exit 1 ;;\n"
+            "    esac ;;\n"
+            "esac\nsleep 1\n"
         )
         client.chmod(0o700)
         environment = dict(os.environ, XDG_CONFIG_HOME=str(root), RDPCTL_FREERDP=str(client))
@@ -99,10 +108,11 @@ def main() -> None:
                 return
             wait_for(lambda: javascript("return document.querySelectorAll('[name=monitor]').length === 2"), "SDL monitor IDs")
             javascript("""
-              const form = document.querySelector('form');
+              const form = document.querySelector('#profile-form');
               form.elements.name.value = 'New workstation';
               form.elements.host.value = 'new.example.invalid';
               form.elements.user.value = 'user';
+              form.elements.password.value = 'saved secret';
               form.elements.fullscreen.checked = true;
               form.elements.multi_monitor.checked = true;
               document.querySelector('[name=monitor][value="3"]').checked = true;
@@ -116,14 +126,36 @@ def main() -> None:
             assert "password" not in saved
             assert saved_path.stat().st_mode & 0o777 == 0o600
             wait_for(lambda: javascript("return document.querySelectorAll('.connection').length === 2"), "saved connection card")
-            javascript("document.querySelectorAll('.connection button')[1].click()")
+            password_path = profiles / "passwords" / "new-workstation"
+            wait_for(password_path.exists, "saved plaintext password")
+            assert password_path.read_text() == "saved secret"
+            assert password_path.stat().st_mode & 0o777 == 0o600
+            javascript("document.querySelectorAll('.connection')[1].querySelector('button').click()")
             wait_for((root / "arguments").exists, "FreeRDP launch")
             assert (root / "arguments").read_text().splitlines() == [
-                "/v:new.example.invalid", "/u:user", "/multimon", "/monitors:3", "/f"
+                "/v:new.example.invalid", "/u:user", "/multimon", "/monitors:3", "/f", "/cert:deny", "/p:saved secret"
             ]
+            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.actions button')[1].click()")
+            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].textContent.includes('Certificate trust failed')"), "certificate test failure")
+            arguments = (root / "arguments").read_text()
+            assert "+auth-only\n/sec:nla\n" in arguments
+            assert "/multimon" not in arguments
+            certificates = root / "freerdp" / "server"
+            certificates.mkdir(parents=True)
+            remembered = certificates / "new.example.invalid_3389.pem"
+            remembered.write_text("remembered certificate")
+            javascript("Array.from(document.querySelectorAll('.connection')[1].querySelectorAll('button')).find(button => button.textContent.startsWith('Back up remembered')).click()")
+            assert remembered.exists()
+            javascript("Array.from(document.querySelectorAll('.connection')[1].querySelectorAll('button')).find(button => button.textContent === 'Confirm certificate backup').click()")
+            wait_for(lambda: not remembered.exists(), "certificate backup")
+            assert next(certificates.glob("*.pem.previous-*")).read_text() == "remembered certificate"
+            javascript("Array.from(document.querySelectorAll('.connection')[1].querySelectorAll('button')).find(button => button.textContent === 'Use detected fingerprint').click()")
+            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.actions button')[1].click()")
+            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].textContent.includes('NLA authentication succeeded')"), "successful authentication test")
+            assert json.loads(saved_path.read_text())["fingerprint"] == "ab" * 32
             original = saved_path.read_bytes()
             javascript("""
-              const form = document.querySelector('form');
+              const form = document.querySelector('#profile-form');
               form.elements.name.value = 'New workstation';
               form.elements.host.value = 'changed.example.invalid';
               form.elements.user.value = 'other';

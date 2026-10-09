@@ -38,6 +38,51 @@ fn create_profile(profile: Profile) -> Result<Profile, String> {
     Store::from_environment()?.create(profile)
 }
 
+#[tauri::command]
+fn update_profile(profile: Profile) -> Result<Profile, String> {
+    Store::from_environment()?.update(profile)
+}
+
+#[tauri::command]
+fn password_saved(id: String) -> Result<bool, String> {
+    Store::from_environment()?.has_password(&id)
+}
+
+#[tauri::command]
+fn save_password(id: String, password: String) -> Result<(), String> {
+    Store::from_environment()?.save_password(&id, &password)
+}
+
+#[tauri::command]
+fn forget_password(id: String) -> Result<(), String> {
+    Store::from_environment()?.forget_password(&id)
+}
+
+#[tauri::command]
+fn forget_certificate(id: String) -> Result<bool, String> {
+    Store::from_environment()?.forget_certificate(&id)
+}
+
+#[tauri::command]
+async fn test_profile(
+    id: String,
+    password: Option<String>,
+) -> Result<rdpctl_core::TestResult, String> {
+    let store = Store::from_environment()?;
+    let profile = store.load(&id)?;
+    let password = match password {
+        Some(password) => Some(password),
+        None => store.password(&id)?,
+    }
+    .ok_or("Enter a password or save one before testing.")?;
+    let client = client_path()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rdpctl_core::test_connection(profile, &client, &password)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[derive(Clone, Serialize)]
 struct SessionEnded {
     name: String,
@@ -47,12 +92,21 @@ struct SessionEnded {
 }
 
 #[tauri::command]
-fn launch_profile(app: tauri::AppHandle, id: String) -> Result<u32, String> {
-    let profile = Store::from_environment()?.load(&id)?;
+fn launch_profile(
+    app: tauri::AppHandle,
+    id: String,
+    password: Option<String>,
+) -> Result<u32, String> {
+    let store = Store::from_environment()?;
+    let profile = store.load(&id)?;
+    let password = match password {
+        Some(password) => Some(password),
+        None => store.password(&id)?,
+    };
     // Only the local environment can override the client; the webview supplies an ID.
     let client = client_path()?;
     let name = profile.name.clone();
-    let mut child = rdpctl_core::launch(profile, &client)?;
+    let mut child = rdpctl_core::launch(profile, &client, password.as_deref())?;
     let pid = child.id();
     std::thread::spawn(move || {
         let status = child.wait();
@@ -80,6 +134,12 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             list_profiles,
             create_profile,
+            update_profile,
+            password_saved,
+            save_password,
+            forget_password,
+            forget_certificate,
+            test_profile,
             launch_profile,
             list_monitors
         ])

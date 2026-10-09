@@ -2,6 +2,11 @@
 set -euo pipefail
 bundle="${1:?Bundle directory required}"
 export LD_LIBRARY_PATH="$bundle/lib"
+export OPENSSL_MODULES="$bundle/lib/ossl-modules"
+[[ -f "$OPENSSL_MODULES/legacy.so" ]] || { echo 'Bundled OpenSSL legacy provider missing.' >&2; exit 1; }
+# Exercise dlopen and MD4, not just ELF linkage; MD4 is required by NTLM.
+openssl list -providers -provider default -provider legacy
+printf '' | openssl dgst -provider default -provider legacy -md4
 "$bundle/freerdp" /version
 "$bundle/freerdp" /buildconfig
 "$bundle/bin/rdpctl" --help >/dev/null

@@ -3,6 +3,8 @@ set -euo pipefail
 
 base="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 export LD_LIBRARY_PATH="$base/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Providers are loaded dynamically and must match the bundled libcrypto.
+export OPENSSL_MODULES="${OPENSSL_MODULES:-$base/lib/ossl-modules}"
 # Prefer the native session backend while retaining your explicit override.
 if [[ -z "${SDL_VIDEODRIVER:-}" ]]; then
   if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then

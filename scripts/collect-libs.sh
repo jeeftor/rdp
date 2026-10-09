@@ -35,6 +35,12 @@ copy_library() {
 }
 
 # Revisit newly copied ELF dependencies until the closure stops growing.
+# ldd cannot discover OpenSSL's dynamically loaded legacy provider (MD4/RC4 for NTLM).
+module_dir="$(openssl version -m | awk -F '\"' '{print $2}')"
+[[ -f "$module_dir/legacy.so" ]] || { echo 'OpenSSL legacy provider missing from build host.' >&2; exit 1; }
+copy_library "$module_dir/legacy.so"
+mkdir -p "$bundle/lib/ossl-modules"
+mv "$bundle/lib/legacy.so" "$bundle/lib/ossl-modules/legacy.so"
 previous=-1
 while [[ "$previous" -ne "${#copied[@]}" ]]; do
   previous="${#copied[@]}"

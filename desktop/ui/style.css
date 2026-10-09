@@ -22,6 +22,16 @@ button { background: #25364c; border: 1px solid #425169; border-radius: 7px; col
 button.primary { background: #8dc1ff; color: #10213b; border-color: #8dc1ff; font-weight: 650; }
 button:disabled { opacity: .5; cursor: wait; }
 button:focus-visible, input:focus-visible { outline: 2px solid #9ccaff; outline-offset: 3px; }
+select { width: 100%; margin-top: 7px; border: 1px solid #425169; border-radius: 6px; background: #101722; color: #e5edf8; padding: 10px; font: inherit; }
+select:focus-visible { outline: 2px solid #9ccaff; outline-offset: 3px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.connection details { margin-top: 16px; }
+.connection summary { cursor: pointer; }
+.connection details > form { margin-top: 16px; }
+.test-result { margin-top: 16px; }
+.test-result.error { color: #ffb7ac; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; color: #a6b5c9; font-size: 12px; max-height: 280px; overflow: auto; }
+[hidden] { display: none !important; }
 footer { padding: 4px 32px 12px; border-top: 1px solid #2c3747; }
 #status { font-size: 13px; color: #a6b5c9; }
 #status.error { color: #ffb7ac; }

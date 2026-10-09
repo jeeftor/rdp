@@ -3,7 +3,7 @@
 [![Build and release](https://github.com/jeeftor/rdp/actions/workflows/build.yml/badge.svg)](https://github.com/jeeftor/rdp/actions/workflows/build.yml)
 
 A portable Linux x86_64 FreeRDP SDL3 client with **Wayland and X11** support,
-plus a password-free `rdpctl` connection manager. GitHub Actions builds directly
+plus terminal and graphical `rdpctl` connection managers. GitHub Actions builds directly
 on Ubuntu 24.04 and publishes tarball, RPM, and DEB release artifacts. Docker
 is not required.
 
@@ -22,7 +22,8 @@ cd freerdp-portable-x86_64-3.30.0
 ```
 
 Use the monitor IDs reported by `/list:monitor`. FreeRDP prompts for your
-password; do not put it on the command line.
+password when you invoke it without credentials. The desktop manager can save
+plaintext passwords locally and prints full copyable commands, including passwords.
 
 The wrapper selects native Wayland when `WAYLAND_DISPLAY` is set and X11 when
 only `DISPLAY` is set. You can choose explicitly:
@@ -82,7 +83,9 @@ remain in your home directory when you remove the package.
 
 A Rust/Tauri graphical connection manager is available in
 [desktop/](desktop/README.md). It shares these profiles and launches the same
-FreeRDP client, with display selection and password prompts through FreeRDP.
+FreeRDP client, with display selection, optional saved plaintext passwords,
+NLA authentication tests, per-connection certificate policies, and full command
+logging. See the desktop documentation for certificate trust and backup controls.
 Prereleases from `v0.1.0-rc.3` include separate `rdpctl-gui` RPM and DEB packages.
 Those smaller packages require host GTK/WebKit. For air-gapped use, choose
 the combined `rdp` RPM or `rdpctl-portable` DEB described above.

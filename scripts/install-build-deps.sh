@@ -12,7 +12,7 @@ sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::http
 sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends \
   build-essential cmake ninja-build pkg-config curl ca-certificates \
   file ripgrep bison flex dpkg-dev jq gettext-base \
-  libssl-dev zlib1g-dev libjpeg-dev libkrb5-dev libicu-dev \
+  openssl libssl-dev zlib1g-dev libjpeg-dev libkrb5-dev libicu-dev \
   libxml2-dev libffi-dev libfreetype-dev libharfbuzz-dev \
   libwayland-dev wayland-protocols libxkbcommon-dev libxkbcommon-x11-dev \
   libegl-dev libgl-dev libgles-dev libdbus-1-dev \
