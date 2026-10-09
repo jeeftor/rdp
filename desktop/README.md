@@ -43,7 +43,9 @@ does not automatically trust the new certificate or change your policy.
 Every launch and test prints a shell-quoted, copyable FreeRDP command to standard
 error and the GUI connection log, including the password. The GUI also streams
 FreeRDP stdout/stderr into that log; **Copy command** copies the full shell-quoted
-command, including environment overrides for software rendering. The actual launch passes arguments through
+command, including environment overrides for software rendering. Test commands
+are labeled **Authentication test command (no desktop)**; `+auth-only` checks
+credentials and exits, while desktop commands are shown after **Connect**. The actual launch passes arguments through
 standard input when using a password. To keep terminal output locally:
 
 ```bash
@@ -102,6 +104,9 @@ available`, try **Use X11 software rendering** in **Edit connection**. It uses
 requires a working `DISPLAY`
 (Xorg or XWayland), and leaves the default native backend unchanged otherwise.
 On Wayland without XWayland, repair the host EGL/graphics driver setup instead.
+Monitor IDs can differ between Wayland and X11. **Detect displays for this
+connection** uses its chosen backend; select the reported IDs or clear Monitor
+IDs to use defaults. The GUI flags invalid IDs in connection output.
 Authentication tests do not test desktop rendering. A Kerberos default-realm
 warning can precede a successful NTLM fallback; inspect the final outcome.
 

@@ -47,9 +47,14 @@ pub(crate) fn spawn(
         command.args(&arguments);
     }
     let copyable = copyable_command(command, &arguments);
+    let purpose = if arguments.iter().any(|argument| argument == "+auth-only") {
+        "authentication test (+auth-only does not open a desktop)"
+    } else {
+        "desktop connection"
+    };
     // The air-gap operator explicitly wants a full command, including credentials.
     eprintln!(
-        "FreeRDP command (includes password; copyable equivalent to stdin arguments): {}",
+        "FreeRDP {purpose} command (includes password; copyable equivalent to stdin arguments): {}",
         copyable
     );
     let mut child = command

@@ -321,15 +321,8 @@ impl Store {
     }
 }
 
-/// Start the selected profile through an explicit FreeRDP wrapper path.
-pub fn launch(
-    profile: Profile,
-    client: &Path,
-    password: Option<&str>,
-) -> Result<(Child, String), String> {
-    let profile = profile.validate()?;
-    let mut command = Command::new(client);
-    if profile.software_rendering {
+fn configure_rendering(command: &mut Command, software_rendering: bool) -> Result<(), String> {
+    if software_rendering {
         if std::env::var_os("DISPLAY").is_none_or(|value| value.is_empty()) {
             return Err("X11 software rendering requires DISPLAY. Launch from an X11 desktop or a Wayland desktop with XWayland enabled.".into());
         }
@@ -338,6 +331,18 @@ pub fn launch(
             .env("SDL_RENDER_DRIVER", "software")
             .env("SDL_FRAMEBUFFER_ACCELERATION", "0");
     }
+    Ok(())
+}
+
+/// Start the selected profile through an explicit FreeRDP wrapper path.
+pub fn launch(
+    profile: Profile,
+    client: &Path,
+    password: Option<&str>,
+) -> Result<(Child, String), String> {
+    let profile = profile.validate()?;
+    let mut command = Command::new(client);
+    configure_rendering(&mut command, profile.software_rendering)?;
     command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -389,8 +394,10 @@ pub fn parse_monitors(output: &str) -> Result<Vec<Monitor>, String> {
 }
 
 /// Ask the installed client for its current Wayland or X11 displays.
-pub fn list_monitors(client: &Path) -> Result<Vec<Monitor>, String> {
-    let output = Command::new(client)
+pub fn list_monitors(client: &Path, software_rendering: bool) -> Result<Vec<Monitor>, String> {
+    let mut command = Command::new(client);
+    configure_rendering(&mut command, software_rendering)?;
+    let output = command
         .arg("/list:monitor")
         .output()
         .map_err(|error| format!("Cannot enumerate monitors at {}: {error}", client.display()))?;

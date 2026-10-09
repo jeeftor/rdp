@@ -22,11 +22,15 @@ fn client_path() -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-async fn list_monitors() -> Result<Vec<rdpctl_core::Monitor>, String> {
+async fn list_monitors(
+    software_rendering: Option<bool>,
+) -> Result<Vec<rdpctl_core::Monitor>, String> {
     let client = client_path()?;
-    tauri::async_runtime::spawn_blocking(move || rdpctl_core::list_monitors(&client))
-        .await
-        .map_err(|error| error.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        rdpctl_core::list_monitors(&client, software_rendering.unwrap_or(false))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

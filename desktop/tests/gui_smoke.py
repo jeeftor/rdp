@@ -170,6 +170,20 @@ def main() -> None:
             assert edited["user"] == "DOMAIN\\other" and edited["monitors"] == "1,3"
             assert edited["fullscreen"] is False
             assert password_path.read_text() == "saved secret"
+            javascript("""
+              const editor = document.querySelectorAll('.connection')[1].querySelector('details form');
+              editor.elements.monitors.value = '99';
+              Array.from(editor.querySelectorAll('button')).find(button => button.textContent === 'Detect displays for this connection').click();
+            """)
+            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('details form').textContent.includes('99 are unavailable')"), "stale monitor diagnosis")
+            javascript("""
+              const editor = document.querySelectorAll('.connection')[1].querySelector('details form');
+              for (const id of ['1', '3']) {
+                const checkbox = editor.querySelector(`input[type=checkbox][value="${id}"]`);
+                checkbox.checked = true;
+                checkbox.dispatchEvent(new Event('change'));
+              }
+            """)
             javascript("document.querySelectorAll('.connection')[1].querySelector('button').click()")
             wait_for(lambda: "/v:edited.example.invalid" in (root / "arguments").read_text(), "edited FreeRDP launch")
             wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.command').textContent.includes('/v:edited.example.invalid')"), "full GUI launch command")

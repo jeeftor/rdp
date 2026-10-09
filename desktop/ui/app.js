@@ -53,6 +53,34 @@ async function addConnectionActions(card, profile) {
     labelNode.append(input, document.createTextNode(label));
     editor.append(labelNode);
   }
+  const detected = element('div');
+  const detect = button('Detect displays for this connection', async () => {
+    detect.disabled = true;
+    try {
+      const monitors = await tauri.core.invoke('list_monitors', { softwareRendering: fields.software_rendering.checked });
+      const selected = fields.monitors.value.split(',').filter(Boolean);
+      detected.replaceChildren();
+      for (const monitor of monitors) {
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = selected.includes(String(monitor.id));
+        checkbox.value = String(monitor.id);
+        checkbox.addEventListener('change', () => {
+          fields.monitors.value = Array.from(detected.querySelectorAll('input:checked')).map(input => input.value).join(',');
+        });
+        const label = element('label', '', 'check');
+        label.append(checkbox, document.createTextNode(monitor.label));
+        detected.append(label);
+      }
+      const unavailable = selected.filter(id => !monitors.some(monitor => String(monitor.id) === id));
+      const warning = `Saved monitor IDs ${unavailable.join(',')} are unavailable here. Choose listed displays or clear Monitor IDs to use defaults.`;
+      if (unavailable.length) detected.append(element('p', warning, 'hint'));
+      message(unavailable.length ? warning : `Detected ${monitors.length} displays for this connection.`, unavailable.length > 0);
+    } catch (error) { message(String(error), true); }
+    finally { detect.disabled = false; }
+  });
+  fields.software_rendering.addEventListener('change', () => detected.replaceChildren());
+  editor.append(detect, detected);
   const password = document.createElement('input');
   password.type = 'password';
   password.name = 'password';
@@ -142,7 +170,8 @@ async function addConnectionActions(card, profile) {
   const commandLog = element('details', '', 'command-log');
   const commandText = element('pre', 'Connect or test to see the exact FreeRDP command.', 'command');
   const outputText = element('pre', '', 'session-output');
-  commandLog.append(element('summary', 'FreeRDP command and connection log'), element('p', 'Commands include your password.', 'hint'), commandText,
+  const commandTitle = element('summary', 'FreeRDP command and connection log');
+  commandLog.append(commandTitle, element('p', 'Commands include your password.', 'hint'), commandText,
     button('Copy command', async () => {
       try { await navigator.clipboard.writeText(commandText.textContent); message('Copied FreeRDP command.'); }
       catch (_) {
@@ -159,6 +188,7 @@ async function addConnectionActions(card, profile) {
     result.replaceChildren();
     outputText.textContent = "";
     commandLog.open = true;
+    commandTitle.textContent = testing ? 'Authentication test command (no desktop)' : 'Desktop connection command and log';
     try {
       const entered = await applySettings();
       if (testing) {
@@ -284,7 +314,7 @@ document.querySelector('#detect-monitors').addEventListener('click', async (even
   const button = event.currentTarget;
   button.disabled = true;
   try {
-    const monitors = await tauri.core.invoke('list_monitors');
+    const monitors = await tauri.core.invoke('list_monitors', { softwareRendering: form.elements.software_rendering.checked });
     const list = document.querySelector('#monitors');
     list.replaceChildren();
     for (const monitor of monitors) {
@@ -307,6 +337,11 @@ if (tauri) {
   await tauri.event.listen('session-log', ({ payload }) => {
     const log = sessionLogs.get(payload.id);
     if (log) log.textContent = (log.textContent + payload.line + '\n').slice(-65536);
+    if (payload.line.includes('Supplied monitor ID') && payload.line.includes('invalid')) {
+      const card = log?.closest('.connection');
+      if (card) card.querySelector('details').open = true;
+      message('A saved monitor ID is invalid for this display backend. Detect displays in Edit connection, or clear Monitor IDs to use defaults.', true);
+    }
     if (payload.line.includes('Window framebuffer support not available')) {
       message('FreeRDP could not render the desktop. Try X11 software rendering in Edit connection, or check the host EGL/graphics drivers.', true);
     }
