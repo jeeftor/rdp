@@ -131,10 +131,10 @@ def main() -> None:
             assert password_path.read_text() == "saved secret"
             assert password_path.stat().st_mode & 0o777 == 0o600
             javascript("document.querySelectorAll('.connection')[1].querySelector('button').click()")
-            wait_for((root / "arguments").exists, "FreeRDP launch")
-            assert (root / "arguments").read_text().splitlines() == [
+            expected_arguments = [
                 "/v:new.example.invalid", "/u:user", "/multimon", "/monitors:3", "/f", "/cert:deny", "/p:saved secret"
             ]
+            wait_for(lambda: (root / "arguments").exists() and (root / "arguments").read_text().splitlines() == expected_arguments, "complete FreeRDP launch arguments")
             javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.actions button')[1].click()")
             wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].textContent.includes('Certificate trust failed')"), "certificate test failure")
             arguments = (root / "arguments").read_text()
