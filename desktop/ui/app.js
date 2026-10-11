@@ -315,7 +315,8 @@ async function addConnectionActions(card, profile) {
     enableTrials(true);
     const text = `${payload.outcome.summary} Process exit: ${payload.code ?? 'signal / unavailable'}.`;
     if (activeTrial) {
-      activeTrial.outcome.textContent = text;
+      activeTrial.outcome.dataset.result = text;
+      activeTrial.outcome.textContent = `${working.has(activeTrial.mode) ? 'Confirmed working. ' : ''}${text}`;
       activeTrial.remember.disabled = !['closed', 'initialized'].includes(payload.outcome.kind);
     }
     graphicsText.textContent = payload.outcome.graphics;
@@ -336,7 +337,7 @@ async function addConnectionActions(card, profile) {
         fields.monitors.value = '';
         detected.replaceChildren();
         await applySettings();
-        outcome.textContent = 'Confirmed working';
+        outcome.textContent = `Confirmed working. ${outcome.dataset.result || ''}`;
         videoStatus.textContent = `Remembered ${best[1]} for ${profile.name}. Detect displays again before selecting monitor IDs.`;
         message(videoStatus.textContent);
       } catch (error) {
@@ -353,6 +354,7 @@ async function addConnectionActions(card, profile) {
       if (running) return;
       running = true;
       activeTrial = { mode, outcome, remember };
+      outcome.dataset.result = '';
       outcome.textContent = 'Starting desktop trial…';
       enableTrials(false);
       remember.disabled = true;
