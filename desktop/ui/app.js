@@ -331,7 +331,7 @@ async function addConnectionActions(card, profile) {
       const previous = { mode: fields.video_mode.value, monitors: fields.monitors.value, confirmed: Array.from(working) };
       try {
         working.add(mode);
-        const best = videoModes.find(([candidate]) => working.has(candidate));
+        const best = videoModes.find(([candidate]) => working.has(candidate) && availableModes.get(candidate)?.available !== false);
         profile.working_video_modes = Array.from(working);
         fields.video_mode.value = best[0];
         fields.monitors.value = '';

@@ -219,7 +219,8 @@ remain readable. Renderer trials do not change your certificate policy.
 ### Trial results and diagnostic exports
 
 Video choices without `DISPLAY` (X11) or `WAYLAND_DISPLAY` (Wayland) are disabled
-with an explanation. A present endpoint does not guarantee that its driver works.
+with an explanation. Remember best chooses among currently available confirmed
+modes; previously confirmed unavailable modes remain in history. A present endpoint does not guarantee that its driver works.
 The bundled SDL frame probe checks your selected mode before launching and reports
 the OpenGL renderer/device in the GUI. Known CPU drivers such as llvmpipe are
 identified explicitly; missing device information is reported as unknown.

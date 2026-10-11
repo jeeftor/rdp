@@ -203,6 +203,12 @@ def main() -> None:
             wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.session-output').textContent.includes('fake session output')"), "live FreeRDP log")
             # Confirm real GUI trial commands and preference persistence with the fake client.
             javascript("window.videoCard = () => Array.from(document.querySelectorAll('.connection')).find(card => card.querySelector('h2').textContent === 'Edited workstation')")
+            unavailable_mode = "wayland-opengl" if os.environ.get("DISPLAY") else "x11-opengl"
+            with_history = json.loads(saved_path.read_text())
+            with_history["working_video_modes"] = [unavailable_mode]
+            saved_path.write_text(json.dumps(with_history))
+            javascript("window.videoCard().dataset.refreshMarker = 'before'; document.querySelector('#refresh').click()")
+            wait_for(lambda: javascript("return window.videoCard()?.dataset.refreshMarker !== 'before' && window.videoCard()?.querySelector('.video-tests')"), "confirmed history from another display environment")
             lower_index, higher_index = (4, 0) if os.environ.get("DISPLAY") else (3, 1)
             lower_mode = "x11-software" if os.environ.get("DISPLAY") else "wayland-opengles2"
             higher_mode = "x11-opengl" if os.environ.get("DISPLAY") else "wayland-opengl"
@@ -229,7 +235,7 @@ def main() -> None:
             assert json.loads(saved_path.read_text()).get("monitors", "") == ""
             javascript("window.videoCard().dataset.refreshMarker = 'before'; document.querySelector('#refresh').click()")
             wait_for(lambda: javascript(f"return window.videoCard()?.dataset.refreshMarker !== 'before' && window.videoCard()?.querySelector('[name=video_mode]')?.value === {json.dumps(higher_mode)}"), "remembered mode after refresh")
-            assert set(json.loads(saved_path.read_text())["working_video_modes"]) == {higher_mode, lower_mode}
+            assert set(json.loads(saved_path.read_text())["working_video_modes"]) == {higher_mode, lower_mode, unavailable_mode}
             javascript("Array.from(window.videoCard().querySelectorAll('button')).find(button => button.textContent === 'Test video options').click()")
             javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelector('button').click()")
             wait_for(lambda: javascript("return !window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelector('button').disabled"), "repeated lower-priority trial exit")
