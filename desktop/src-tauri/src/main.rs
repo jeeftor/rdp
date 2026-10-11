@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use rdpctl_core::{Profile, Store, VideoMode};
+use rdpctl_core::{DiagnosticHistory, Profile, Store, VideoMode};
 use serde::Serialize;
 use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
@@ -70,6 +70,7 @@ fn forget_certificate(id: String) -> Result<bool, String> {
 async fn test_profile(
     id: String,
     password: Option<String>,
+    history: tauri::State<'_, DiagnosticHistory>,
 ) -> Result<rdpctl_core::TestResult, String> {
     let store = Store::from_environment()?;
     let profile = store.load(&id)?;
@@ -79,17 +80,63 @@ async fn test_profile(
     }
     .ok_or("Enter a password or save one before testing.")?;
     let client = client_path()?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         rdpctl_core::test_connection(profile, &client, &password)
     })
     .await
-    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())??;
+    history.authentication(&id, &result);
+    Ok(result)
+}
+
+#[tauri::command]
+fn video_availability() -> Vec<rdpctl_core::VideoAvailability> {
+    rdpctl_core::video_availability()
+}
+
+#[tauri::command]
+fn export_diagnostics(
+    id: String,
+    history: tauri::State<'_, DiagnosticHistory>,
+) -> Result<String, String> {
+    let profile = Store::from_environment()?.load(&id)?;
+    history
+        .export(&profile)
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+async fn compare_authentication(
+    id: String,
+    password: Option<String>,
+    history: tauri::State<'_, DiagnosticHistory>,
+) -> Result<Vec<rdpctl_core::TestResult>, String> {
+    let store = Store::from_environment()?;
+    let profile = store.load(&id)?;
+    let password = match password {
+        Some(password) => Some(password),
+        None => store.password(&id)?,
+    }
+    .ok_or("Enter a password or save one before testing.")?;
+    let client = client_path()?;
+    let results = tauri::async_runtime::spawn_blocking(move || {
+        let stdin = rdpctl_core::test_connection(profile.clone(), &client, &password)?;
+        let argv = rdpctl_core::test_connection_argv(profile, &client, &password)?;
+        Ok::<_, String>(vec![stdin, argv])
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    for result in &results {
+        history.authentication(&id, result);
+    }
+    Ok(results)
 }
 
 #[derive(Serialize)]
 struct LaunchResult {
     pid: u32,
     command: String,
+    graphics: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -98,11 +145,18 @@ struct SessionLog {
     line: String,
 }
 
-fn relay_log(app: tauri::AppHandle, id: String, output: impl Read + Send + 'static) {
+fn relay_log(
+    app: tauri::AppHandle,
+    id: String,
+    history: DiagnosticHistory,
+    stamp: u128,
+    output: impl Read + Send + 'static,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         for line in BufReader::new(output).lines() {
             let Ok(line) = line else { break };
             eprintln!("{line}");
+            history.append(stamp, &line);
             let _ = app.emit(
                 "session-log",
                 SessionLog {
@@ -111,7 +165,7 @@ fn relay_log(app: tauri::AppHandle, id: String, output: impl Read + Send + 'stat
                 },
             );
         }
-    });
+    })
 }
 
 #[derive(Clone, Serialize)]
@@ -122,14 +176,16 @@ struct SessionEnded {
     pid: u32,
     success: bool,
     code: Option<i32>,
+    outcome: rdpctl_core::SessionOutcome,
 }
 
 #[tauri::command]
-fn launch_profile(
+async fn launch_profile(
     app: tauri::AppHandle,
     id: String,
     password: Option<String>,
     video_mode: Option<VideoMode>,
+    history: tauri::State<'_, DiagnosticHistory>,
 ) -> Result<LaunchResult, String> {
     let store = Store::from_environment()?;
     let profile = store.load(&id)?;
@@ -140,19 +196,64 @@ fn launch_profile(
     // Only the local environment can override the client; the webview supplies an ID.
     let client = client_path()?;
     let name = profile.name.clone();
-    let (mut child, command) =
-        rdpctl_core::launch(profile, &client, password.as_deref(), video_mode)?;
+    let history = history.inner().clone();
+    let launched = tauri::async_runtime::spawn_blocking(move || {
+        rdpctl_core::launch(profile, &client, password.as_deref(), video_mode)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let (mut child, command, graphics) = match launched {
+        Ok(launched) => launched,
+        Err(error) => {
+            let stamp = history.start(&id, "desktop launch failure", String::new(), error.clone());
+            history.finish(stamp, false, None);
+            return Err(error);
+        }
+    };
+    let graphics_summary = rdpctl_core::session_outcome(true, &graphics).graphics;
+    let stamp = history.start(
+        &id,
+        if video_mode.is_some() {
+            "video trial"
+        } else {
+            "desktop"
+        },
+        command.clone(),
+        graphics,
+    );
+    let mut readers = Vec::new();
     if let Some(output) = child.stdout.take() {
-        relay_log(app.clone(), id.clone(), output);
+        readers.push(relay_log(
+            app.clone(),
+            id.clone(),
+            history.clone(),
+            stamp,
+            output,
+        ));
     }
     if let Some(output) = child.stderr.take() {
-        relay_log(app.clone(), id.clone(), output);
+        readers.push(relay_log(
+            app.clone(),
+            id.clone(),
+            history.clone(),
+            stamp,
+            output,
+        ));
     }
     let pid = child.id();
     std::thread::spawn(move || {
         let status = child.wait();
+        for reader in readers {
+            let _ = reader.join();
+        }
+        let outcome = history.finish(
+            stamp,
+            status.as_ref().is_ok_and(|status| status.success()),
+            status.as_ref().ok().and_then(|status| status.code()),
+        );
         let event = SessionEnded {
             id,
+            outcome,
             video_test: video_mode.is_some(),
             name,
             pid,
@@ -161,7 +262,11 @@ fn launch_profile(
         };
         let _ = app.emit("session-ended", event);
     });
-    Ok(LaunchResult { pid, command })
+    Ok(LaunchResult {
+        pid,
+        command,
+        graphics: graphics_summary,
+    })
 }
 
 fn main() {
@@ -174,6 +279,7 @@ fn main() {
         }
     }
     tauri::Builder::default()
+        .manage(DiagnosticHistory::default())
         .invoke_handler(tauri::generate_handler![
             list_profiles,
             create_profile,
@@ -184,7 +290,10 @@ fn main() {
             forget_certificate,
             test_profile,
             launch_profile,
-            list_monitors
+            list_monitors,
+            video_availability,
+            compare_authentication,
+            export_diagnostics
         ])
         .run(tauri::generate_context!())
         .expect("Cannot start the rdpctl desktop application");

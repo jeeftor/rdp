@@ -42,3 +42,7 @@ footer { padding: 4px 32px 12px; border-top: 1px solid #2c3747; }
 .video-tests { margin-top: 16px; padding: 16px; border: 1px solid #425169; border-radius: 7px; }
 .video-trial { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
 .video-trial strong { min-width: 150px; font-size: 13px; }
+
+.video-trial button[data-unavailable=true] { cursor: not-allowed; }
+.video-trial > .hint { flex-basis: 100%; }
+.graphics-info { white-space: pre-wrap; }

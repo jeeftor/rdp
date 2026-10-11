@@ -12,7 +12,11 @@ use std::process::{Child, Command};
 static PROCESS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 mod connection;
-pub use connection::{test_connection, TestResult};
+mod diagnostics;
+pub use connection::{test_connection, test_connection_argv, TestResult};
+pub use diagnostics::{
+    session_outcome, video_availability, DiagnosticHistory, SessionOutcome, VideoAvailability,
+};
 
 /// How FreeRDP checks a server certificate for this connection.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -355,7 +359,7 @@ fn configure_rendering(
     command: &mut Command,
     client: &Path,
     video_mode: VideoMode,
-) -> Result<(), String> {
+) -> Result<String, String> {
     if let Some((backend, renderer)) = video_mode.settings() {
         let display = if backend == "x11" {
             "DISPLAY"
@@ -378,42 +382,57 @@ fn configure_rendering(
                 .env_remove("SDL_FRAMEBUFFER_ACCELERATION")
                 .env_remove("LIBGL_ALWAYS_SOFTWARE");
         }
-    } else if std::env::var_os("SDL_VIDEO_DRIVER").is_none_or(|v| v.is_empty())
-        && std::env::var_os("SDL_VIDEODRIVER").is_none_or(|v| v.is_empty())
-    {
-        // Older installed bundles and test clients do not have the probe yet.
-        if let Some(base) = client.parent() {
-            let probe = base.join("bin/rdp-render-probe");
-            if probe.is_file() {
-                let mut paths = vec![base.join("lib")];
-                if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH") {
-                    paths.extend(std::env::split_paths(&existing));
-                }
-                let output = Command::new(&probe)
-                    .env(
-                        "LD_LIBRARY_PATH",
-                        std::env::join_paths(paths).map_err(|e| e.to_string())?,
-                    )
-                    .output()
-                    .map_err(|e| format!("Cannot probe desktop graphics: {e}"))?;
-                let details = String::from_utf8_lossy(&output.stderr);
-                eprint!("{details}");
-                if !output.status.success() {
-                    return Err(format!("Desktop graphics detection failed: {details}"));
-                }
-                let selection = String::from_utf8_lossy(&output.stdout);
-                let (backend, renderer) = selection
-                    .trim()
-                    .split_once('|')
-                    .ok_or("Desktop graphics probe returned an invalid selection")?;
-                command
-                    .env("SDL_VIDEO_DRIVER", backend)
-                    .env("SDL_VIDEODRIVER", backend)
-                    .env("SDL_RENDER_DRIVER", renderer);
+    }
+    // Probe explicit choices as well as automatic mode with the same environment overrides.
+    let Some(base) = client.parent() else {
+        return Ok(String::new());
+    };
+    let probe = base.join("bin/rdp-render-probe");
+    if !probe.is_file() {
+        return Ok("GPU/driver identity unavailable: this client has no SDL frame probe.\n".into());
+    }
+    let mut paths = vec![base.join("lib")];
+    if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH") {
+        paths.extend(std::env::split_paths(&existing));
+    }
+    let mut check = Command::new(&probe);
+    for (name, value) in command.get_envs() {
+        match value {
+            Some(value) => {
+                check.env(name, value);
+            }
+            None => {
+                check.env_remove(name);
             }
         }
     }
-    Ok(())
+    let output = check
+        .env(
+            "LD_LIBRARY_PATH",
+            std::env::join_paths(paths).map_err(|e| e.to_string())?,
+        )
+        .output()
+        .map_err(|e| format!("Cannot probe desktop graphics: {e}"))?;
+    let details = String::from_utf8_lossy(&output.stderr).into_owned();
+    eprint!("{details}");
+    if !output.status.success() {
+        return Err(format!("Desktop graphics detection failed: {details}"));
+    }
+    let selection = String::from_utf8_lossy(&output.stdout);
+    let (backend, renderer) = selection
+        .trim()
+        .split_once('|')
+        .ok_or("Desktop graphics probe returned an invalid selection")?;
+    if !["x11", "wayland"].contains(&backend)
+        || !["opengl", "opengles2", "software"].contains(&renderer)
+    {
+        return Err("Desktop graphics probe returned an unsupported selection".into());
+    }
+    command
+        .env("SDL_VIDEO_DRIVER", backend)
+        .env("SDL_VIDEODRIVER", backend)
+        .env("SDL_RENDER_DRIVER", renderer);
+    Ok(details)
 }
 
 /// Start the selected profile through an explicit FreeRDP wrapper path.
@@ -422,7 +441,7 @@ pub fn launch(
     client: &Path,
     password: Option<&str>,
     video_test: Option<VideoMode>,
-) -> Result<(Child, String), String> {
+) -> Result<(Child, String, String), String> {
     let mut profile = profile.validate()?;
     if let Some(mode) = video_test {
         profile.video_mode = mode;
@@ -431,7 +450,7 @@ pub fn launch(
         profile.monitors.clear();
     }
     let mut command = Command::new(client);
-    configure_rendering(&mut command, client, profile.video_mode)?;
+    let graphics = configure_rendering(&mut command, client, profile.video_mode)?;
     command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -439,7 +458,8 @@ pub fn launch(
     if video_test.is_some() {
         arguments.extend(["/size:1280x720", "/bpp:32", "/sec:nla"].map(str::to_owned));
     }
-    connection::spawn(&mut command, arguments, password)
+    let (child, copyable) = connection::spawn(&mut command, arguments, password)?;
+    Ok((child, copyable, graphics))
 }
 
 /// Accept a SHA-256 fingerprint in compact or colon-separated form.
@@ -577,7 +597,7 @@ mod tests {
             saved.working_video_modes = vec![mode];
             saved = store.update(saved).unwrap();
             assert_eq!(store.load(&saved.id).unwrap(), saved);
-            let (child, command) = launch(saved.clone(), &client, None, Some(mode)).unwrap();
+            let (child, command, _) = launch(saved.clone(), &client, None, Some(mode)).unwrap();
             let output = child.wait_with_output().unwrap();
             assert!(output.status.success());
             let output = String::from_utf8(output.stdout).unwrap();

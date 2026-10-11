@@ -85,9 +85,11 @@ pub(crate) fn spawn(
 }
 
 /// The outcome of one NLA authentication attempt, with captured diagnostic details.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct TestResult {
     pub success: bool,
+    pub exit_code: Option<i32>,
+    pub transport: String,
     pub kind: String,
     pub summary: String,
     pub details: String,
@@ -102,7 +104,16 @@ pub fn test_connection(
     client: &Path,
     password: &str,
 ) -> Result<TestResult, String> {
-    test_with_timeout(profile, client, password, Duration::from_secs(20))
+    test_with_timeout(profile, client, password, Duration::from_secs(20), false)
+}
+
+/// Run the same NLA test with direct CLI arguments for an explicit transport comparison.
+pub fn test_connection_argv(
+    profile: Profile,
+    client: &Path,
+    password: &str,
+) -> Result<TestResult, String> {
+    test_with_timeout(profile, client, password, Duration::from_secs(20), true)
 }
 
 fn test_with_timeout(
@@ -110,6 +121,7 @@ fn test_with_timeout(
     client: &Path,
     password: &str,
     timeout: Duration,
+    argv: bool,
 ) -> Result<TestResult, String> {
     let mut profile = profile.validate()?;
     // A password test must use NLA, not a TLS-only connection that never checks credentials.
@@ -136,7 +148,14 @@ fn test_with_timeout(
         .stderr(Stdio::from(
             log.try_clone().map_err(|error| error.to_string())?,
         ));
-    let (mut child, copyable) = spawn(&mut command, arguments, Some(password))?;
+    validate_password(password)?;
+    let transport_password = if argv {
+        arguments.push(format!("/p:{password}"));
+        None
+    } else {
+        Some(password)
+    };
+    let (mut child, copyable) = spawn(&mut command, arguments, transport_password)?;
     let deadline = Instant::now() + timeout;
     let mut timed_out = false;
     let status = loop {
@@ -153,6 +172,8 @@ fn test_with_timeout(
     let details = read_log(&mut log)?;
     let mut result = classify(status.success() && !timed_out, timed_out, details);
     result.command = copyable;
+    result.exit_code = status.code();
+    result.transport = if argv { "argv" } else { "stdin" }.into();
     Ok(result)
 }
 
@@ -226,6 +247,10 @@ fn classify(success: bool, timed_out: bool, details: String) -> TestResult {
             "network",
             "The server could not be reached. Check its address, port, firewall and RDP service.",
         )
+    } else if lower.contains("authentication only")
+        && (lower.contains("errbase_success") || lower.contains("exit status success [0]"))
+    {
+        ("exit_mismatch", "FreeRDP reported authentication success but the process exited unsuccessfully. Compare CLI authentication to identify a stdin/argv or wrapper difference.")
     } else {
         ("protocol", "The authentication test failed. Review the details for TLS, NLA or server configuration errors.")
     };
@@ -238,6 +263,8 @@ fn classify(success: bool, timed_out: bool, details: String) -> TestResult {
         .flat_map(str::split_whitespace)
         .find_map(|word| normalize_fingerprint(word.trim_matches([',', ';', '"', '\''])).ok());
     TestResult {
+        exit_code: None,
+        transport: String::new(),
         success,
         kind: kind.into(),
         summary: summary.into(),
@@ -369,6 +396,42 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn exposes_stdin_cli_mismatch_without_overriding_real_exit_status() {
+        let _guard = crate::PROCESS_TEST_LOCK.lock().unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let client = directory.path().join("client");
+        fs::write(&client, "#!/bin/sh\nif [ \"$1\" = /args-from:stdin ]; then cat >/dev/null; printf 'Authentication only, exit status SUCCESS [0]\\n'; exit 1; fi\nprintf '%s\\n' \"$@\"\nexit 0\n").unwrap();
+        fs::set_permissions(&client, fs::Permissions::from_mode(0o700)).unwrap();
+        let profile = Profile {
+            id: "test".into(),
+            name: "Test".into(),
+            host: "example.invalid".into(),
+            user: "user".into(),
+            fullscreen: false,
+            software_rendering: false,
+            video_mode: crate::VideoMode::Auto,
+            working_video_modes: vec![],
+            multi_monitor: false,
+            monitors: String::new(),
+            certificate: CertificatePolicy::Ignore,
+            fingerprint: String::new(),
+        };
+        let stdin = test_connection(profile.clone(), &client, "a visible password").unwrap();
+        let argv = test_connection_argv(profile, &client, "a visible password").unwrap();
+        assert!(!stdin.success);
+        assert_eq!(stdin.kind, "exit_mismatch");
+        assert_eq!(stdin.transport, "stdin");
+        assert_eq!(stdin.exit_code, Some(1));
+        assert!(argv.success);
+        assert_eq!(argv.transport, "argv");
+        assert_eq!(argv.exit_code, Some(0));
+        assert!(argv.details.contains("/p:a visible password"));
+        assert_eq!(stdin.command, argv.command);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn tests_credentials_through_stdin_and_preserves_output_with_a_deadline() {
         let _guard = crate::PROCESS_TEST_LOCK.lock().unwrap();
         use std::os::unix::fs::PermissionsExt;
@@ -404,8 +467,14 @@ mod tests {
         assert!(test_connection(profile.clone(), &client, "bad\n/p:injection").is_err());
         fs::write(&client, "#!/bin/sh\ncat >/dev/null\nexec sleep 10\n").unwrap();
         let start = Instant::now();
-        let result =
-            test_with_timeout(profile, &client, "secret", Duration::from_millis(100)).unwrap();
+        let result = test_with_timeout(
+            profile,
+            &client,
+            "secret",
+            Duration::from_millis(100),
+            false,
+        )
+        .unwrap();
         assert_eq!(result.kind, "timeout");
         assert!(start.elapsed() < Duration::from_secs(2));
     }

@@ -4,6 +4,7 @@ const form = document.querySelector('#profile-form');
 const tauri = window.__TAURI__;
 const sessionLogs = new Map();
 const videoSessions = new Map();
+let availableModes = new Map();
 // Preference order among modes the operator has confirmed with a usable desktop.
 const videoModes = [
   ['auto', 'Automatic graphics (Wayland / X11)'],
@@ -19,6 +20,10 @@ function videoSelect(value = 'auto') {
   for (const [mode, label] of videoModes) {
     const option = element('option', label);
     option.value = mode;
+    const availability = availableModes.get(mode);
+    option.disabled = availability?.available === false;
+    option.title = availability?.reason || '';
+    if (option.disabled) option.textContent += ' (unavailable)';
     select.append(option);
   }
   select.value = value;
@@ -193,6 +198,7 @@ async function addConnectionActions(card, profile) {
   const commandLog = element('details', '', 'command-log');
   const commandText = element('pre', 'Connect or test to see the exact FreeRDP command.', 'command');
   const outputText = element('pre', '', 'session-output');
+  const graphicsText = element('p', 'GPU/driver details appear after a desktop trial.', 'graphics-info hint');
   const commandTitle = element('summary', 'FreeRDP command and connection log');
   commandLog.append(commandTitle, element('p', 'Commands include your password.', 'hint'), commandText,
     button('Copy command', async () => {
@@ -204,7 +210,12 @@ async function addConnectionActions(card, profile) {
         selection.removeAllRanges(); selection.addRange(range);
         message('Command selected. Press Ctrl+C to copy.');
       }
-    }), outputText);
+    }), button('Export diagnostics', async () => {
+      try {
+        const path = await tauri.core.invoke('export_diagnostics', { id: profile.id });
+        message(`Saved diagnostics (including passwords) to ${path}`);
+      } catch (error) { message(String(error), true); }
+    }), graphicsText, outputText);
   sessionLogs.set(profile.id, outputText);
   async function run(testing) {
     connect.disabled = test.disabled = true;
@@ -219,7 +230,7 @@ async function addConnectionActions(card, profile) {
         const outcome = await tauri.core.invoke('test_profile', { id: profile.id, password: entered });
         commandText.textContent = outcome.command;
         result.classList.toggle('error', !outcome.success);
-        result.append(element('p', outcome.summary));
+        result.append(element('p', outcome.summary), element('p', `Transport: ${outcome.transport}; process exit: ${outcome.exit_code ?? 'signal / unavailable'}`, 'hint'));
         if (outcome.runtime_warning) result.append(element('p', outcome.runtime_warning));
         if (outcome.fingerprint) {
           result.append(element('p', `Server SHA-256: ${outcome.fingerprint}`));
@@ -255,6 +266,7 @@ async function addConnectionActions(card, profile) {
       } else {
         const launched = await tauri.core.invoke('launch_profile', { id: profile.id, password: entered });
         commandText.textContent = launched.command;
+        graphicsText.textContent = launched.graphics;
         message(`Launched ${profile.name}. Continue in the FreeRDP window.`);
       }
     } catch (error) { options.open = true; message(String(error), true); }
@@ -262,6 +274,28 @@ async function addConnectionActions(card, profile) {
   }
   const connect = button('Connect', () => run(false), 'primary');
   const test = button('Test connection', () => run(true));
+  const compare = button('Compare CLI authentication', async () => {
+    compare.disabled = true;
+    enableTrials(false);
+    commandLog.open = true;
+    commandTitle.textContent = 'Authentication comparison: stdin and direct CLI arguments';
+    result.replaceChildren(element('p', 'Running two NLA attempts with identical credentials and certificate policy…'));
+    try {
+      const entered = await applySettings();
+      const results = await tauri.core.invoke('compare_authentication', { id: profile.id, password: entered });
+      commandText.textContent = results.map(outcome => `# ${outcome.transport} (exit ${outcome.exit_code ?? 'signal'})\n${outcome.command}`).join('\n\n');
+      result.replaceChildren();
+      result.classList.toggle('error', results.some(outcome => !outcome.success));
+      for (const outcome of results) {
+        const details = element('details');
+        details.append(element('summary', `${outcome.transport}: ${outcome.summary} (exit ${outcome.exit_code ?? 'signal'})`), element('pre', outcome.details));
+        result.append(details);
+      }
+      const same = results[0].success === results[1].success && results[0].exit_code === results[1].exit_code;
+      message(same ? 'Both authentication methods returned the same result. Review details or export diagnostics.' : 'Authentication differs between stdin and CLI arguments. Export diagnostics to investigate.', !same);
+    } catch (error) { message(String(error), true); }
+    finally { compare.disabled = false; enableTrials(true); }
+  });
   const actions = element('div', '', 'actions');
   const videoPanel = element('div', '', 'video-tests');
   videoPanel.hidden = true;
@@ -269,19 +303,28 @@ async function addConnectionActions(card, profile) {
   const working = new Set(profile.working_video_modes || []);
   const trialButtons = [];
   let running = false;
+  let activeTrial = null;
   const videoStatus = element('p', '', 'hint');
   function enableTrials(enabled) {
-    for (const tryButton of trialButtons) tryButton.disabled = !enabled;
-    connect.disabled = test.disabled = !enabled;
+    for (const tryButton of trialButtons) tryButton.disabled = !enabled || tryButton.dataset.unavailable === 'true';
+    connect.disabled = test.disabled = compare.disabled = !enabled;
   }
-  videoSessions.set(profile.id, () => {
+  videoSessions.set(profile.id, (payload) => {
+    if (!activeTrial || (activeTrial.pid && activeTrial.pid !== payload.pid)) return;
     running = false;
     enableTrials(true);
-    videoStatus.textContent = 'Trial closed. Mark Works if its desktop displayed correctly; an exit code alone does not confirm that.';
+    const text = `${payload.outcome.summary} Process exit: ${payload.code ?? 'signal / unavailable'}.`;
+    if (activeTrial) {
+      activeTrial.outcome.textContent = text;
+      activeTrial.remember.disabled = !['closed', 'initialized'].includes(payload.outcome.kind);
+    }
+    graphicsText.textContent = payload.outcome.graphics;
+    videoStatus.textContent = text;
   });
   for (const [mode, label] of videoModes.slice(1)) {
     const row = element('div', '', 'video-trial');
-    const outcome = element('span', working.has(mode) ? 'Confirmed working' : 'Not confirmed', 'hint');
+    const availability = availableModes.get(mode);
+    const outcome = element('span', availability?.available === false ? availability.reason : working.has(mode) ? 'Confirmed working' : 'Not confirmed', 'hint');
     const remember = button('Works — remember best', async () => {
       remember.disabled = true;
       const previous = { mode: fields.video_mode.value, monitors: fields.monitors.value, confirmed: Array.from(working) };
@@ -309,6 +352,8 @@ async function addConnectionActions(card, profile) {
     const tryButton = button('Try desktop', async () => {
       if (running) return;
       running = true;
+      activeTrial = { mode, outcome, remember };
+      outcome.textContent = 'Starting desktop trial…';
       enableTrials(false);
       remember.disabled = true;
       commandLog.open = true;
@@ -317,8 +362,10 @@ async function addConnectionActions(card, profile) {
       try {
         const entered = await applySettings();
         const launched = await tauri.core.invoke('launch_profile', { id: profile.id, password: entered, videoMode: mode });
+        activeTrial.pid = launched.pid;
         commandText.textContent = launched.command;
-        remember.disabled = false;
+        graphicsText.textContent = launched.graphics;
+        if (running) remember.disabled = false;
         if (running) videoStatus.textContent = `Testing ${label}. Check the FreeRDP desktop, then close it. Your saved graphics mode has not changed.`;
         message(`Video test: ${label}. Check the desktop and mark Works if usable.`);
       } catch (error) {
@@ -328,13 +375,16 @@ async function addConnectionActions(card, profile) {
         message(String(error), true);
       }
     });
+    tryButton.dataset.unavailable = String(availability?.available === false);
+    tryButton.disabled = availability?.available === false;
+    tryButton.title = availability?.reason || '';
     trialButtons.push(tryButton);
     row.append(element('strong', label), tryButton, remember, outcome);
     videoPanel.append(row);
   }
   videoPanel.append(videoStatus);
   const video = button('Test video options', () => { videoPanel.hidden = !videoPanel.hidden; });
-  actions.append(connect, test, video);
+  actions.append(connect, test, video, compare);
   card.append(actions, videoPanel, options, result, commandLog);
 }
 
@@ -347,6 +397,12 @@ function displaySettings(profile) {
 
 async function refresh() {
   try {
+    availableModes = new Map((await tauri.core.invoke('video_availability')).map(item => [item.mode, item]));
+    for (const option of form.elements.video_mode.options) {
+      const availability = availableModes.get(option.value);
+      option.disabled = availability?.available === false;
+      option.title = availability?.reason || '';
+    }
     const profiles = await tauri.core.invoke('list_profiles');
     connections.replaceChildren();
     sessionLogs.clear();
@@ -445,7 +501,9 @@ if (tauri) {
       videoSessions.get(payload.id)?.(payload);
       return;
     }
-    message(payload.success ? `${payload.name} closed.` : `${payload.name} exited with ${payload.code ?? 'no exit code'}. Use Test connection for diagnostics.`, !payload.success);
+    const card = sessionLogs.get(payload.id)?.closest('.connection');
+    if (card) card.querySelector('.graphics-info').textContent = payload.outcome.graphics;
+    message(`${payload.name}: ${payload.outcome.summary} Process exit: ${payload.code ?? 'signal / unavailable'}.`, ['renderer', 'credentials', 'certificate', 'failed'].includes(payload.outcome.kind));
   });
   await refresh();
 } else {

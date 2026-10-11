@@ -26,7 +26,11 @@ static int probe(const char *backend, const char *renderer)
         typedef const unsigned char *(*get_string)(unsigned int);
         get_string gl_string = (get_string)SDL_GL_GetProcAddress("glGetString");
         const unsigned char *device = gl_string ? gl_string(0x1F01) : NULL;
-        if (device) fprintf(stderr, " (%s)", device);
+        const unsigned char *vendor = gl_string ? gl_string(0x1F00) : NULL;
+        const unsigned char *version = gl_string ? gl_string(0x1F02) : NULL;
+        if (device) fprintf(stderr, " (%s; vendor=%s; OpenGL=%s)", device,
+                            vendor ? (const char *)vendor : "unknown",
+                            version ? (const char *)version : "unknown");
     }
     fprintf(stderr, "\n");
     SDL_Quit();
@@ -81,6 +85,7 @@ int main(void)
         }
         if (explicit_backend) break;
     }
+    if (explicit_backend || explicit_renderer) { fprintf(stderr, "Selected display/renderer cannot present a frame. Check the graphics details above.\n"); return 1; }
     fprintf(stderr, "No working OpenGL display path. Check your desktop/GPU setup or explicitly enable X11 software rendering.\n");
     return 1;
 }

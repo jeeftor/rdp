@@ -77,7 +77,11 @@ def main() -> None:
             "esac\nprintf 'fake session output\\n'\nsleep 1\n"
         )
         client.chmod(0o700)
-        environment = dict(os.environ, XDG_CONFIG_HOME=str(root), RDPCTL_FREERDP=str(client))
+        probe = root / "bin/rdp-render-probe"
+        probe.parent.mkdir()
+        probe.write_text("#!/bin/sh\nbackend=${SDL_VIDEO_DRIVER:-${SDL_VIDEODRIVER:-}}\nif [ -z \"$backend\" ]; then if [ -n \"${WAYLAND_DISPLAY:-}\" ]; then backend=wayland; else backend=x11; fi; fi\nrenderer=${SDL_RENDER_DRIVER:-opengl}\nprintf '%s|%s\\n' \"$backend\" \"$renderer\"\nprintf 'FreeRDP graphics: %s/%s passed frame presentation (llvmpipe LLVM)\\n' \"$backend\" \"$renderer\" >&2\n")
+        probe.chmod(0o700)
+        environment = dict(os.environ, XDG_CONFIG_HOME=str(root), XDG_STATE_HOME=str(root / "state"), RDPCTL_FREERDP=str(client))
         if bundled_monitors:
             environment.pop("RDPCTL_FREERDP", None)
         driver = subprocess.Popen(["tauri-driver"], env=environment)
@@ -206,8 +210,8 @@ def main() -> None:
             javascript(f"window.videoLower = {lower_index}; window.videoHigher = {higher_index}")
             javascript("Array.from(window.videoCard().querySelectorAll('button')).find(button => button.textContent === 'Test video options').click()")
             if not os.environ.get("DISPLAY"):
-                javascript("window.videoCard().querySelectorAll('.video-trial')[4].querySelector('button').click()")
-                wait_for(lambda: javascript("return document.querySelector('#status').textContent.includes('requires DISPLAY')"), "unavailable X11 trial error")
+                assert javascript("return window.videoCard().querySelectorAll('.video-trial')[4].querySelector('button').disabled")
+                assert javascript("return window.videoCard().querySelectorAll('.video-trial')[4].textContent.includes('DISPLAY is not set')")
             javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelector('button').click()")
             wait_for(lambda: "/size:1280x720" in (root / "arguments").read_text(), "simple video trial arguments")
             trial_arguments = (root / "arguments").read_text()
@@ -219,6 +223,7 @@ def main() -> None:
             javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoHigher].querySelector('button').click()")
             wait_for(lambda: javascript("return window.videoCard().querySelector('.command').textContent.includes(\"SDL_RENDER_DRIVER='opengl'\")"), "OpenGL video trial")
             wait_for(lambda: javascript("return !window.videoCard().querySelectorAll('.video-trial')[window.videoHigher].querySelector('button').disabled"), "OpenGL trial exit")
+            assert javascript("return window.videoCard().querySelector('.graphics-info').textContent.includes('CPU rendering detected')")
             javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoHigher].querySelectorAll('button')[1].click()")
             wait_for(lambda: json.loads(saved_path.read_text()).get("video_mode") == higher_mode, "OpenGL preference over lower-priority renderer")
             assert json.loads(saved_path.read_text()).get("monitors", "") == ""
@@ -231,6 +236,20 @@ def main() -> None:
             javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelectorAll('button')[1].click()")
             wait_for(lambda: javascript(f"return document.querySelector('#status').textContent.includes({json.dumps('Remembered ' + higher_label)})"), "lower-priority renderer cannot downgrade confirmed OpenGL")
             assert json.loads(saved_path.read_text())["video_mode"] == higher_mode
+            wait_for(lambda: javascript("return window.videoCard().querySelector('.video-tests').textContent.includes('Process exit: 0')"), "video exit evidence")
+            javascript("Array.from(window.videoCard().querySelectorAll('button')).find(button => button.textContent === 'Compare CLI authentication').click()")
+            wait_for(lambda: javascript("return document.querySelector('#status').textContent.includes('Both authentication methods')"), "stdin and direct CLI comparison")
+            javascript("Array.from(window.videoCard().querySelectorAll('button')).find(button => button.textContent === 'Export diagnostics').click()")
+            wait_for(lambda: list((root / "state/rdpctl/diagnostics").glob('*.json')), "diagnostic JSON export")
+            exported = json.loads(next((root / "state/rdpctl/diagnostics").glob('*.json')).read_text())
+            assert exported["profile"]["host"] == "edited.example.invalid"
+            assert any('/p:' in attempt["command"] for attempt in exported["attempts"])
+            transports = {attempt["authentication"]["transport"] for attempt in exported["attempts"] if attempt["authentication"]}
+            assert transports == {"stdin", "argv"}
+            compared = [attempt for attempt in exported["attempts"] if attempt["authentication"]][-2:]
+            assert [attempt["authentication"]["transport"] for attempt in compared] == ["stdin", "argv"]
+            assert all(attempt["exit_code"] == 0 for attempt in compared)
+            assert any(attempt["outcome"] for attempt in exported["attempts"])
             original = saved_path.read_bytes()
             javascript("""
               const form = document.querySelector('#profile-form');

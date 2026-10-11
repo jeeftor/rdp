@@ -215,3 +215,29 @@ IDs: detect displays again for the chosen mode. Normal Connect and display
 detection use the saved choice. **Graphics mode** also lets you select a mode
 manually or return to automatic detection. Existing software-override profiles
 remain readable. Renderer trials do not change your certificate policy.
+
+### Trial results and diagnostic exports
+
+Video choices without `DISPLAY` (X11) or `WAYLAND_DISPLAY` (Wayland) are disabled
+with an explanation. A present endpoint does not guarantee that its driver works.
+The bundled SDL frame probe checks your selected mode before launching and reports
+the OpenGL renderer/device in the GUI. Known CPU drivers such as llvmpipe are
+identified explicitly; missing device information is reported as unknown.
+
+Each video trial shows its process exit code and distinguishes renderer,
+authentication, certificate and general failures from desktop initialization.
+Initialization and an exit code do not prove that you saw a usable desktop:
+you still confirm **Works — remember best** yourself.
+
+**Compare CLI authentication** makes two sequential NLA attempts using the same
+profile and password: stdin arguments (the normal GUI path) and direct CLI
+arguments. It retains both commands, outputs and actual process exit codes.
+If FreeRDP reports authentication success but exits unsuccessfully, the GUI
+reports that discrepancy rather than silently declaring success.
+
+**Export diagnostics** writes a private JSON file under
+`${XDG_STATE_HOME:-~/.local/state}/rdpctl/diagnostics/` and displays its path.
+It includes your profile, relevant display/SDL/OpenSSL environment, exact commands
+including passwords, GPU probe results, logs and exit status. It retains the
+latest 32 attempts in this GUI process, each with its last 1 MiB of output;
+authentication output retains its last 64 KiB. Export before closing the GUI.
