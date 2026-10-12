@@ -55,6 +55,11 @@ def wait_for(check: Callable[[], Any], description: str) -> Any:
     raise AssertionError(f"Timed out waiting for {description}") from last_transport_error
 
 
+def read_with_retry(read: Callable[[], Any]) -> Any:
+    """Retry a state read after transport failure, preserving false or empty results."""
+    return wait_for(lambda: (read(),), "GUI state read")[0]
+
+
 def main() -> None:
     """Exercise the compact Vue dialogs, Rust IPC, and real profile storage."""
     bundled_monitors = sys.argv[3:] == ["--bundled-monitors"]
@@ -118,35 +123,38 @@ def main() -> None:
             def javascript(script: str) -> Any:
                 """Execute JavaScript inside the actual native webview."""
                 return request('POST', f'/session/{session}/execute/sync', {'script': script, 'args': []})
+            def query(script: str) -> Any:
+                """Read GUI state with retries; never use this for clicks or edits."""
+                return read_with_retry(lambda: javascript(script))
             def click(test_id: str) -> None:
                 """Activate an accessible control through its stable test identifier."""
-                wait_for(lambda: javascript(f"return !!document.querySelector('[data-testid={test_id}]') && !document.querySelector('[data-testid={test_id}]').disabled"), f'{test_id} enabled')
+                wait_for(lambda: query(f"return !!document.querySelector('[data-testid={test_id}]') && !document.querySelector('[data-testid={test_id}]').disabled"), f'{test_id} enabled')
                 javascript(f"document.querySelector('[data-testid={test_id}]').click()")
             def fill(test_id: str, value: str) -> None:
                 """Enter text and notify Vue's real input handler."""
-                wait_for(lambda: javascript(f"return !!document.querySelector('[data-testid={test_id}]') && !document.querySelector('[data-testid={test_id}]').disabled"), f'{test_id} ready')
+                wait_for(lambda: query(f"return !!document.querySelector('[data-testid={test_id}]') && !document.querySelector('[data-testid={test_id}]').disabled"), f'{test_id} ready')
                 javascript(f"const input=document.querySelector('[data-testid={test_id}]'); input.value={json.dumps(value)}; input.dispatchEvent(new Event('input', {{bubbles:true}}))")
             def action(profile_id: str, test_id: str) -> None:
                 """Activate a specific connection row's action."""
-                wait_for(lambda: javascript(f"return !!document.querySelector('[data-profile-id={profile_id}] [data-testid={test_id}]') && !document.querySelector('[data-profile-id={profile_id}] [data-testid={test_id}]').disabled"), f'{profile_id} {test_id} enabled')
+                wait_for(lambda: query(f"return !!document.querySelector('[data-profile-id={profile_id}] [data-testid={test_id}]') && !document.querySelector('[data-profile-id={profile_id}] [data-testid={test_id}]').disabled"), f'{profile_id} {test_id} enabled')
                 javascript(f"document.querySelector('[data-profile-id={profile_id}] [data-testid={test_id}]').click()")
             def choose(test_id: str, label: str) -> None:
                 """Choose a PrimeVue option using its visible label."""
                 click(test_id)
-                wait_for(lambda: javascript("return document.querySelectorAll('[role=option]').length > 0"), 'select options')
+                wait_for(lambda: query("return document.querySelectorAll('[role=option]').length > 0"), 'select options')
                 javascript(f"Array.from(document.querySelectorAll('[role=option]')).find(option=>option.textContent.trim()==={json.dumps(label)}).click()")
             def close_dialog() -> None:
                 """Close the test dialog using its explicit Close action."""
                 javascript("Array.from(document.querySelector('[data-testid=test-dialog]').querySelectorAll('button')).find(button=>button.textContent.trim()==='Close').click()")
-                wait_for(lambda: javascript("return !document.querySelector('[data-testid=test-dialog]')"), 'test dialog closed')
-            wait_for(lambda: javascript("return document.querySelector('[data-profile-id=existing]')"), 'legacy JSON connection table')
-            assert javascript("return document.querySelector('[data-testid=connections-table]').textContent.includes('Existing <b>profile</b>')")
-            assert not javascript("return document.querySelector('[data-testid=connections-table] b')")
-            assert javascript("return !!document.querySelector('[data-profile-id=existing] [data-testid=edit]')")
+                wait_for(lambda: query("return !document.querySelector('[data-testid=test-dialog]')"), 'test dialog closed')
+            wait_for(lambda: query("return document.querySelector('[data-profile-id=existing]')"), 'legacy JSON connection table')
+            assert query("return document.querySelector('[data-testid=connections-table]').textContent.includes('Existing <b>profile</b>')")
+            assert not query("return document.querySelector('[data-testid=connections-table] b')")
+            assert query("return !!document.querySelector('[data-profile-id=existing] [data-testid=edit]')")
             click('new-connection')
-            wait_for(lambda: javascript("return document.querySelector('[data-testid=editor-dialog]')"), 'new connection dialog')
+            wait_for(lambda: query("return document.querySelector('[data-testid=editor-dialog]')"), 'new connection dialog')
             click('detect-displays')
-            wait_for(lambda: javascript("return document.querySelector('[data-testid=editor-dialog] .monitor-list')"), 'SDL display detection')
+            wait_for(lambda: query("return document.querySelector('[data-testid=editor-dialog] .monitor-list')"), 'SDL display detection')
             if bundled_monitors:
                 screenshot.parent.mkdir(parents=True, exist_ok=True)
                 screenshot.write_bytes(base64.b64decode(request('GET', f'/session/{session}/screenshot')))
@@ -170,23 +178,23 @@ def main() -> None:
             wait_for(password_path.exists, 'saved plaintext password')
             assert password_path.read_text() == 'saved secret'
             assert password_path.stat().st_mode & 0o777 == 0o600
-            wait_for(lambda: javascript("return document.querySelector('[data-profile-id=new-workstation]')"), 'new connection row')
+            wait_for(lambda: query("return document.querySelector('[data-profile-id=new-workstation]')"), 'new connection row')
             action('new-workstation', 'edit')
-            wait_for(lambda: javascript("return document.querySelector('[data-testid=profile-password]')?.value==='saved secret'"), 'visible saved password')
-            assert javascript("return document.querySelector('[data-testid=profile-password]').type==='text'")
+            wait_for(lambda: query("return document.querySelector('[data-testid=profile-password]')?.value==='saved secret'"), 'visible saved password')
+            assert query("return document.querySelector('[data-testid=profile-password]').type==='text'")
             fill('profile-name', 'Edited workstation')
             fill('profile-host', 'edited.example.invalid')
             fill('profile-user', 'DOMAIN\\other')
             fill('monitor-ids', '99')
             click('detect-displays')
-            wait_for(lambda: javascript("return document.querySelector('#status').textContent.includes('99 unavailable')"), 'stale monitor diagnosis')
+            wait_for(lambda: query("return document.querySelector('#status').textContent.includes('99 unavailable')"), 'stale monitor diagnosis')
             fill('monitor-ids', '1,3')
             click('save-connection')
             wait_for(lambda: json.loads(saved_path.read_text())['host'] == 'edited.example.invalid', 'edited profile')
             action('new-workstation', 'test')
-            wait_for(lambda: javascript("return document.querySelector('[data-testid=test-dialog]')"), 'test dialog')
+            wait_for(lambda: query("return document.querySelector('[data-testid=test-dialog]')"), 'test dialog')
             click('test-authentication')
-            wait_for(lambda: javascript("return document.querySelector('[data-testid=authentication-result]')?.textContent.includes('Certificate trust failed')"), 'certificate rejection')
+            wait_for(lambda: query("return document.querySelector('[data-testid=authentication-result]')?.textContent.includes('Certificate trust failed')"), 'certificate rejection')
             remembered = root / 'freerdp/server/edited.example.invalid_3389.pem'
             remembered.parent.mkdir(parents=True)
             remembered.write_text('remembered certificate')
@@ -194,31 +202,31 @@ def main() -> None:
             wait_for(lambda: not remembered.exists(), 'host-only certificate backup')
             assert next(remembered.parent.glob('*.pem.previous-*')).read_text() == 'remembered certificate'
             click('pin-fingerprint')
-            wait_for(lambda: javascript("return document.querySelector('[data-testid=fingerprint]')?.value==='" + 'ab' * 32 + "'"), 'detected fingerprint in editor')
+            wait_for(lambda: query("return document.querySelector('[data-testid=fingerprint]')?.value==='" + 'ab' * 32 + "'"), 'detected fingerprint in editor')
             click('save-connection')
             wait_for(lambda: json.loads(saved_path.read_text()).get('certificate') == 'fingerprint', 'saved fingerprint policy')
             click('test-authentication')
-            wait_for(lambda: javascript("return document.querySelector('[data-testid=authentication-result]')?.textContent.includes('Sign-in accepted')"), 'NLA authentication success')
-            assert javascript("return document.querySelector('[data-testid=authentication-result]').textContent.includes('/p:saved secret')")
-            assert javascript("return document.querySelector('[data-testid=authentication-result]').textContent.includes('(exit 1)')")
-            assert javascript("return document.querySelector('[data-testid=authentication-warning]')?.textContent.includes('actual exit code is preserved')")
+            wait_for(lambda: query("return document.querySelector('[data-testid=authentication-result]')?.textContent.includes('Sign-in accepted')"), 'NLA authentication success')
+            assert query("return document.querySelector('[data-testid=authentication-result]').textContent.includes('/p:saved secret')")
+            assert query("return document.querySelector('[data-testid=authentication-result]').textContent.includes('(exit 1)')")
+            assert query("return document.querySelector('[data-testid=authentication-warning]')?.textContent.includes('actual exit code is preserved')")
             click('test-all')
             # Real batch launches run sequentially; fixture client exits after six seconds each.
             deadline = time.monotonic() + 70
             while time.monotonic() < deadline:
-                if javascript("return document.querySelector('[data-testid=test-status]').textContent.includes('Tests complete')"):
+                if query("return document.querySelector('[data-testid=test-status]').textContent.includes('Tests complete')"):
                     break
                 time.sleep(0.2)
             else:
                 raise AssertionError('Batch video tests did not finish')
             modes = ['x11-opengl', 'x11-opengles2', 'x11-software'] if os.environ.get('DISPLAY') else ['wayland-opengl', 'wayland-opengles2']
             unavailable = 'wayland-opengl' if os.environ.get('DISPLAY') else 'x11-opengl'
-            assert javascript(f"return document.querySelector('[data-testid=open-{unavailable}]').disabled")
+            assert query(f"return document.querySelector('[data-testid=open-{unavailable}]').disabled")
             for mode in modes:
-                assert not javascript(f"return document.querySelector('[data-testid=confirm-{mode}]').disabled")
-                assert javascript(f"return document.querySelector('[data-testid=result-{mode}]').textContent.includes('confirmation')")
+                assert not query(f"return document.querySelector('[data-testid=confirm-{mode}]').disabled")
+                assert query(f"return document.querySelector('[data-testid=result-{mode}]').textContent.includes('confirmation')")
             if os.environ.get('DISPLAY'):
-                assert javascript("return document.querySelector('[data-testid=video-results]').textContent.includes('Image has content')")
+                assert query("return document.querySelector('[data-testid=video-results]').textContent.includes('Image has content')")
             lower, higher = ('x11-software', 'x11-opengl') if os.environ.get('DISPLAY') else ('wayland-opengles2', 'wayland-opengl')
             assert not json.loads(saved_path.read_text()).get('working_video_modes')
             click('confirm-' + lower)
@@ -226,11 +234,11 @@ def main() -> None:
             click('confirm-' + higher)
             wait_for(lambda: json.loads(saved_path.read_text()).get('video_mode') == higher, 'confirmed OpenGL preference')
             click('confirm-' + lower)
-            wait_for(lambda: 'Remembered' in javascript("return document.querySelector('#status').textContent"), 'lower-mode confirmation')
+            wait_for(lambda: 'Remembered' in query("return document.querySelector('#status').textContent"), 'lower-mode confirmation')
             assert json.loads(saved_path.read_text())['video_mode'] == higher
             assert json.loads(saved_path.read_text()).get('monitors', '') == ''
             click('compare-authentication')
-            wait_for(lambda: javascript("return document.querySelectorAll('[data-testid=authentication-result]').length === 2"), 'stdin and CLI comparison')
+            wait_for(lambda: query("return document.querySelectorAll('[data-testid=authentication-result]').length === 2"), 'stdin and CLI comparison')
             click('export-diagnostics')
             exported_dir = root / 'state/rdpctl/diagnostics'
             wait_for(lambda: list(exported_dir.glob('rdp-*.json')), 'diagnostic export')
@@ -246,44 +254,44 @@ def main() -> None:
             keepalive.touch()
             action('new-workstation', 'connect')
             action('new-workstation', 'disconnect')
-            wait_for(lambda: javascript("return !document.querySelector('[data-profile-id=new-workstation] [data-testid=disconnect]')"), 'desktop disconnected')
-            assert not javascript("return !!document.querySelector('[data-testid=editor-dialog]')")
+            wait_for(lambda: query("return !document.querySelector('[data-profile-id=new-workstation] [data-testid=disconnect]')"), 'desktop disconnected')
+            assert not query("return !!document.querySelector('[data-testid=editor-dialog]')")
             keepalive.unlink()
             # Exercise the guided workflow against a real TCP listener; FreeRDP remains a fixture.
             with socket.socket() as listener:
                 listener.bind(('127.0.0.1', 0))
                 listener.listen(8)
                 action('new-workstation', 'troubleshoot')
-                wait_for(lambda: javascript("return document.querySelector('[data-testid=wizard-server]')"), 'server stage')
-                assert javascript("return document.querySelector('[data-testid=wizard-step-4]').disabled")
+                wait_for(lambda: query("return document.querySelector('[data-testid=wizard-server]')"), 'server stage')
+                assert query("return document.querySelector('[data-testid=wizard-step-4]').disabled")
                 click('check-reachability')
-                wait_for(lambda: javascript("return !!document.querySelector('[data-testid=wizard-reachability-result]')"), 'unreachable server result')
-                assert javascript("return document.querySelector('[data-testid=wizard-step-2]').disabled")
+                wait_for(lambda: query("return !!document.querySelector('[data-testid=wizard-reachability-result]')"), 'unreachable server result')
+                assert query("return document.querySelector('[data-testid=wizard-step-2]').disabled")
                 click('wizard-edit-server')
                 fill('profile-host', f'127.0.0.1:{listener.getsockname()[1]}')
                 fill('profile-password', 'rejected secret')
                 click('save-connection')
                 click('check-reachability')
-                wait_for(lambda: javascript("return !!document.querySelector('[data-testid=wizard-trust]')"), 'trust and credential stage')
-                assert javascript("return document.querySelector('[data-testid=wizard-password]').value === 'rejected secret'")
-                assert javascript("return document.querySelector('[data-testid=wizard-password]').type === 'text'")
+                wait_for(lambda: query("return !!document.querySelector('[data-testid=wizard-trust]')"), 'trust and credential stage')
+                assert query("return document.querySelector('[data-testid=wizard-password]').value === 'rejected secret'")
+                assert query("return document.querySelector('[data-testid=wizard-password]').type === 'text'")
                 click('wizard-review-trust')
-                assert javascript("return document.querySelector('[data-testid=test-all]').disabled")
+                assert query("return document.querySelector('[data-testid=test-all]').disabled")
                 click('test-authentication')
-                wait_for(lambda: javascript("return document.querySelector('[data-testid=retry-reason]')?.textContent.includes('exact reason was not supplied')"), 'visible credential retry prompt')
-                assert javascript("return document.querySelector('[data-testid=save-connection]').textContent.includes('Save and retry')")
+                wait_for(lambda: query("return document.querySelector('[data-testid=retry-reason]')?.textContent.includes('exact reason was not supplied')"), 'visible credential retry prompt')
+                assert query("return document.querySelector('[data-testid=save-connection]').textContent.includes('Save and retry')")
                 fill('profile-password', 'saved secret')
                 click('save-connection')
-                wait_for(lambda: javascript("return !document.querySelector('[data-testid=wizard-step-4]').disabled"), 'accepted sign-in unlocks video stage')
+                wait_for(lambda: query("return !document.querySelector('[data-testid=wizard-step-4]').disabled"), 'accepted sign-in unlocks video stage')
                 assert password_path.read_text() == 'saved secret'
-                assert not javascript("return document.querySelector('[data-testid=test-all]').disabled")
+                assert not query("return document.querySelector('[data-testid=test-all]').disabled")
                 click('test-edit')
                 fill('profile-password', 'locked secret')
                 click('save-connection')
                 click('wizard-review-trust')
                 click('test-authentication')
-                wait_for(lambda: javascript("return document.querySelector('[data-testid=retry-reason]')?.textContent.includes('locked')"), 'account lockout prompt')
-                assert javascript("return document.querySelector('[data-testid=save-connection]').textContent.includes('Save connection')")
+                wait_for(lambda: query("return document.querySelector('[data-testid=retry-reason]')?.textContent.includes('locked')"), 'account lockout prompt')
+                assert query("return document.querySelector('[data-testid=save-connection]').textContent.includes('Save connection')")
                 arguments_before_save = args_path.read_bytes()
                 fill('profile-password', 'saved secret')
                 click('save-connection')
@@ -292,16 +300,16 @@ def main() -> None:
                 close_dialog()
             saved_before_duplicate = saved_path.read_bytes()
             click('new-connection')
-            wait_for(lambda: javascript("return document.querySelector('[data-testid=editor-dialog]')"), 'duplicate new dialog')
+            wait_for(lambda: query("return document.querySelector('[data-testid=editor-dialog]')"), 'duplicate new dialog')
             fill('profile-name', 'New workstation'); fill('profile-host', 'changed.example.invalid'); fill('profile-user', 'other')
             click('save-connection')
-            wait_for(lambda: 'existing profile will not be overwritten' in javascript("return document.querySelector('#status').textContent"), 'duplicate refusal')
+            wait_for(lambda: 'existing profile will not be overwritten' in query("return document.querySelector('#status').textContent"), 'duplicate refusal')
             assert saved_path.read_bytes() == saved_before_duplicate
             assert (profiles / 'existing.json').read_text() == original
             click('cancel-editor')
             action('new-workstation', 'edit')
             click('delete-connection')
-            wait_for(lambda: javascript("return document.querySelector('[data-testid=delete-dialog]')?.textContent.includes('Edited workstation')"), 'named deletion confirmation')
+            wait_for(lambda: query("return document.querySelector('[data-testid=delete-dialog]')?.textContent.includes('Edited workstation')"), 'named deletion confirmation')
             click('cancel-delete')
             assert saved_path.read_bytes() == saved_before_duplicate
             click('delete-connection')
@@ -310,14 +318,14 @@ def main() -> None:
             assert not password_path.exists()
             assert (profiles / 'existing.json').read_text() == original
             assert next(remembered.parent.glob('*.pem.previous-*')).read_text() == 'remembered certificate'
-            wait_for(lambda: javascript("return !document.querySelector('[data-profile-id=new-workstation]')"), 'deleted row removed')
+            wait_for(lambda: query("return !document.querySelector('[data-profile-id=new-workstation]')"), 'deleted row removed')
             print('GUI smoke passed: compact Vue table/dialogs, edit/password, certificate, batch video, capture evidence, preference, export, disconnect, SDL auth cleanup, wizard, credential retry, lockout, deletion and duplicate protection.')
         except Exception:
             if session:
                 try:
                     screenshot.parent.mkdir(parents=True, exist_ok=True)
                     screenshot.write_bytes(base64.b64decode(request('GET', f'/session/{session}/screenshot')))
-                    print('GUI failure state:', javascript("return {status:document.querySelector('#status')?.textContent, dialogs:Array.from(document.querySelectorAll('[role=dialog]')).map(node=>node.textContent), buttons:Array.from(document.querySelectorAll('[data-testid]')).filter(node=>node.tagName==='BUTTON').map(node=>({id:node.dataset.testid,disabled:node.disabled}))}"), file=sys.stderr)
+                    print('GUI failure state:', query("return {status:document.querySelector('#status')?.textContent, dialogs:Array.from(document.querySelectorAll('[role=dialog]')).map(node=>node.textContent), buttons:Array.from(document.querySelectorAll('[data-testid]')).filter(node=>node.tagName==='BUTTON').map(node=>({id:node.dataset.testid,disabled:node.disabled}))}"), file=sys.stderr)
                 except Exception as snapshot_error:
                     print(f'Failure snapshot unavailable: {snapshot_error}', file=sys.stderr)
             raise

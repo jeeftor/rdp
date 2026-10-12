@@ -309,8 +309,10 @@ vendored frontend modules and their license notices.
 CI restores compatible Rust dependencies and stores refreshed build artifacts
 per commit. Pinned packaging/test tools are cached, and already-compressed
 artifacts are uploaded without redundant compression. Reruns replace their
-own generated CI artifacts. Read-only GUI checks tolerate brief WebDriver
-connection resets within their existing deadline; mutation actions are not replayed. It runs the frontend checks/build once before the Rust builds.
+own generated CI artifacts. Read-only GUI queries and polling checks tolerate
+brief WebDriver connection resets within a bounded retry window. False or empty
+query results still reach the assertions, and mutation actions are not replayed.
+It runs the frontend checks/build once before the Rust builds.
 Packaging uses `pigz` (installed by `scripts/install-build-deps.sh`) to create
 standard gzip-compressed tar archives in parallel; package formats and native
 GUI checks are unchanged.
