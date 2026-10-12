@@ -113,6 +113,7 @@ def main() -> None:
                 javascript(f"document.querySelector('[data-testid={test_id}]').click()")
             def fill(test_id: str, value: str) -> None:
                 """Enter text and notify Vue's real input handler."""
+                wait_for(lambda: javascript(f"return !!document.querySelector('[data-testid={test_id}]') && !document.querySelector('[data-testid={test_id}]').disabled"), f'{test_id} ready')
                 javascript(f"const input=document.querySelector('[data-testid={test_id}]'); input.value={json.dumps(value)}; input.dispatchEvent(new Event('input', {{bubbles:true}}))")
             def action(profile_id: str, test_id: str) -> None:
                 """Activate a specific connection row's action."""
