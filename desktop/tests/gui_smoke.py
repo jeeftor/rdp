@@ -8,6 +8,7 @@ import os
 import socket
 from pathlib import Path
 from collections.abc import Callable
+from http.client import RemoteDisconnected
 import subprocess
 import sys
 import tempfile
@@ -38,12 +39,20 @@ def request(method: str, path: str, payload: dict[str, Any] | None = None) -> An
 def wait_for(check: Callable[[], Any], description: str) -> Any:
     """Wait briefly for an observable GUI or filesystem condition."""
     deadline = time.monotonic() + 20
+    last_transport_error: Exception | None = None
     while time.monotonic() < deadline:
-        result: Any = check()
+        try:
+            result: Any = check()
+        except HTTPError:
+            raise
+        except (RemoteDisconnected, URLError, TimeoutError) as failure:
+            # Checks only read state; clicks and other mutations are never replayed.
+            last_transport_error = failure
+            result = None
         if result:
             return result
         time.sleep(0.1)
-    raise AssertionError(f"Timed out waiting for {description}")
+    raise AssertionError(f"Timed out waiting for {description}") from last_transport_error
 
 
 def main() -> None:
@@ -60,15 +69,17 @@ def main() -> None:
         (profiles / "existing.json").write_text(original)
         client = root / "fake-freerdp"
         args_path = root / "arguments"
+        keepalive = root / "keep-desktop-open"
         client.write_text(
             '#!/bin/sh\nif [ "$1" = /list:monitor ]; then\n'
             "printf 'listing 2 monitors:\\n * [1] [screen] 1280x1024 +0+0\\n [3] [second] 1920x1080 +1280+0\\n'; exit 255; fi\n"
             f'if [ "$1" = /args-from:stdin ]; then cat > "{args_path}"; else printf \'%s\\n\' "$@" > "{args_path}"; fi\n'
             f'case "$(cat "{args_path}")" in *"/p:rejected secret"*) printf \'ERRCONNECT_LOGON_FAILURE\\n\'; exit 134;; *"/p:locked secret"*) printf \'ERRCONNECT_ACCOUNT_LOCKED_OUT\\n\'; exit 135;; esac\n'
             f'case "$(cat "{args_path}")" in *+auth-only*)\n'
-            f'case "$(cat "{args_path}")" in */cert:fingerprint:sha256:*) exit 0;;\n'
+            f'case "$(cat "{args_path}")" in */cert:fingerprint:sha256:*) printf \'Authentication only, exit status SUCCESS [0]\\n\'; exit 1;;\n'
             "*) printf 'certificate not trusted\\nThe fingerprint for the host key is " + "ab:" * 31 + "ab\\n'; exit 1;; esac;; esac\n"
             "printf 'Local framebuffer format BGRA32\\nRemote framebuffer format BGRA32\\nfake session output\\n'\n"
+            f'if [ -f "{keepalive}" ]; then exec sleep 30; fi\n'
             f'case "$(cat "{args_path}")" in */size:1280x720*) sleep 6;; *) sleep 1;; esac\n'
         )
         client.chmod(0o700)
@@ -189,6 +200,8 @@ def main() -> None:
             click('test-authentication')
             wait_for(lambda: javascript("return document.querySelector('[data-testid=authentication-result]')?.textContent.includes('Sign-in accepted')"), 'NLA authentication success')
             assert javascript("return document.querySelector('[data-testid=authentication-result]').textContent.includes('/p:saved secret')")
+            assert javascript("return document.querySelector('[data-testid=authentication-result]').textContent.includes('(exit 1)')")
+            assert javascript("return document.querySelector('[data-testid=authentication-warning]')?.textContent.includes('actual exit code is preserved')")
             click('test-all')
             # Real batch launches run sequentially; fixture client exits after six seconds each.
             deadline = time.monotonic() + 70
@@ -229,6 +242,13 @@ def main() -> None:
             screenshot.parent.mkdir(parents=True, exist_ok=True)
             screenshot.write_bytes(base64.b64decode(request('GET', f'/session/{session}/screenshot')))
             close_dialog()
+            # Disconnect must close the owned client, without prompting for new credentials.
+            keepalive.touch()
+            action('new-workstation', 'connect')
+            action('new-workstation', 'disconnect')
+            wait_for(lambda: javascript("return !document.querySelector('[data-profile-id=new-workstation] [data-testid=disconnect]')"), 'desktop disconnected')
+            assert not javascript("return !!document.querySelector('[data-testid=editor-dialog]')")
+            keepalive.unlink()
             # Exercise the guided workflow against a real TCP listener; FreeRDP remains a fixture.
             with socket.socket() as listener:
                 listener.bind(('127.0.0.1', 0))
@@ -291,7 +311,7 @@ def main() -> None:
             assert (profiles / 'existing.json').read_text() == original
             assert next(remembered.parent.glob('*.pem.previous-*')).read_text() == 'remembered certificate'
             wait_for(lambda: javascript("return !document.querySelector('[data-profile-id=new-workstation]')"), 'deleted row removed')
-            print('GUI smoke passed: compact Vue table/dialogs, edit/password, certificate, batch video, capture evidence, preference, export, wizard, credential retry, lockout, deletion and duplicate protection.')
+            print('GUI smoke passed: compact Vue table/dialogs, edit/password, certificate, batch video, capture evidence, preference, export, disconnect, SDL auth cleanup, wizard, credential retry, lockout, deletion and duplicate protection.')
         except Exception:
             if session:
                 try:

@@ -3,6 +3,9 @@
 The Rust/Tauri desktop app is the graphical connection manager for the Linux
 FreeRDP bundle. Save a host and username, select your displays, and click
 **Connect**. FreeRDP opens its own native window. Under **Edit**, enter a password and optionally save it in plaintext on this machine.
+While a desktop is open, **Disconnect** closes all desktops launched by this
+GUI for that connection. This disconnects the client; it does not sign you out
+of Windows. Clients launched separately from a terminal are not controlled.
 Leave the field empty to use your saved password; without one, FreeRDP prompts
 when connecting. **Forget password** removes only that connection's password.
 
@@ -55,6 +58,13 @@ current certificate setting and entered/saved password. It does not open a
 remote desktop. The test has a 20-second deadline and distinguishes network,
 certificate, changed-certificate, credential, and crypto-runtime failures. A
 successful test proves NLA authentication, not desktop or monitor behavior.
+FreeRDP 3.30's SDL client can explicitly report successful authentication and
+then return process status 1 during cleanup. The GUI accepts that specific
+symbolic `SUCCESS [0]` result, displays a cleanup warning, and retains the actual
+exit code and log. A timeout, conflicting rejection, or signal termination
+still fails the test; a numeric `exit status 0` log line alone is insufficient.
+See the upstream [SDL event loop and exit handling](https://github.com/FreeRDP/FreeRDP/blob/3.30.0/client/SDL/SDL3/sdl_freerdp.cpp)
+and [authentication cleanup](https://github.com/FreeRDP/FreeRDP/blob/3.30.0/client/SDL/SDL3/sdl_context.cpp).
 
 Choose a policy for each connection:
 
@@ -298,7 +308,9 @@ vendored frontend modules and their license notices.
 
 CI restores compatible Rust dependencies and stores refreshed build artifacts
 per commit. Pinned packaging/test tools are cached, and already-compressed
-artifacts are uploaded without redundant compression. It runs the frontend checks/build once before the Rust builds.
+artifacts are uploaded without redundant compression. Reruns replace their
+own generated CI artifacts. Read-only GUI checks tolerate brief WebDriver
+connection resets within their existing deadline; mutation actions are not replayed. It runs the frontend checks/build once before the Rust builds.
 Packaging uses `pigz` (installed by `scripts/install-build-deps.sh`) to create
 standard gzip-compressed tar archives in parallel; package formats and native
 GUI checks are unchanged.

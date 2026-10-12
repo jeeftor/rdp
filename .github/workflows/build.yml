@@ -80,6 +80,7 @@ jobs:
           name: freerdp-linux-x86_64
           if-no-files-found: error
           compression-level: 0
+          overwrite: true
           path: |
             output/*.tar.gz
             output/*.deb

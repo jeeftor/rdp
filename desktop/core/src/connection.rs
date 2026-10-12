@@ -170,7 +170,7 @@ fn test_with_timeout(
         std::thread::sleep(Duration::from_millis(50));
     };
     let details = read_log(&mut log)?;
-    let mut result = classify(status.success() && !timed_out, timed_out, details);
+    let mut result = classify(status.code(), timed_out, details);
     result.command = copyable;
     result.exit_code = status.code();
     result.transport = if argv { "argv" } else { "stdin" }.into();
@@ -191,11 +191,22 @@ pub(crate) fn read_log(log: &mut File) -> Result<String, String> {
         .collect())
 }
 
-fn classify(success: bool, timed_out: bool, details: String) -> TestResult {
+fn classify(process_code: Option<i32>, timed_out: bool, details: String) -> TestResult {
+    let process_success = process_code == Some(0);
     let lower = details.to_ascii_lowercase();
-    let runtime_warning = (lower.contains("legacy provider failed") || lower.contains("no md4 support")
+    let mut runtime_warning = (lower.contains("legacy provider failed") || lower.contains("no md4 support")
         || lower.contains("failed to initialize digest md4"))
         .then(|| "The OpenSSL legacy provider is unavailable; NTLM authentication cannot work with this runtime.".into());
+    // FreeRDP 3.30 SDL leaves its event-loop rc=1 when successful auth cleanup returns 0.
+    // sdl_freerdp.cpp: sdl_run (rc=1), main (only override nonzero exitCode).
+    // https://github.com/FreeRDP/FreeRDP/blob/3.30.0/client/SDL/SDL3/sdl_freerdp.cpp#L291
+    // sdl_context.cpp: sdl_client_cleanup prints symbolic SUCCESS [0].
+    // https://github.com/FreeRDP/FreeRDP/blob/3.30.0/client/SDL/SDL3/sdl_context.cpp#L529
+    // The symbolic cleanup result is authoritative; numeric core diagnostics alone are not.
+    let confirmed_authentication = process_code == Some(1)
+        && lower
+            .lines()
+            .any(|line| line.contains("authentication only, exit status success [0]"));
     let changed_certificate = lower.contains("remote host identification has changed")
         || lower.contains("certificate has changed")
         || lower.contains("host key has changed");
@@ -204,18 +215,19 @@ fn classify(success: bool, timed_out: bool, details: String) -> TestResult {
             "timeout",
             "The test timed out after 20 seconds. Check the host, network and server response.",
         )
-    } else if success {
-        ("success", "NLA authentication succeeded. The server accepted your credentials; a full desktop session was not tested.")
     } else if changed_certificate {
         ("certificate_changed", "The server certificate differs from the remembered certificate. Verify the new fingerprint before replacing trust.")
-    } else if lower.contains("certificate")
-        && (lower.contains("not trusted")
-            || lower.contains("verification failure")
-            || lower.contains("fingerprint")
-            || lower.contains("changed"))
+    } else if lower.contains("certificate not trusted")
+        || lower.contains("errconnect_tls_connect_failed")
+        || (!process_success
+            && !confirmed_authentication
+            && lower.contains("certificate")
+            && (lower.contains("verification failure")
+                || lower.contains("fingerprint")
+                || lower.contains("changed")))
     {
         ("certificate", "Certificate trust failed. Verify the server fingerprint, then choose a certificate policy below.")
-    } else if runtime_warning.is_some() {
+    } else if runtime_warning.is_some() && !confirmed_authentication {
         (
             "runtime",
             "Authentication is blocked by a missing OpenSSL legacy provider.",
@@ -236,9 +248,25 @@ fn classify(success: bool, timed_out: bool, details: String) -> TestResult {
             "network",
             "The server could not be reached. Check its address, port, firewall and RDP service.",
         )
-    } else if lower.contains("authentication only")
-        && (lower.contains("errbase_success") || lower.contains("exit status success [0]"))
-    {
+    } else if lower.lines().any(|line| {
+        line.split_once("authentication only, exit status ")
+            .is_some_and(|(_, tail)| {
+                tail.split_whitespace()
+                    .next()
+                    .is_some_and(|tag| tag != "success" && tag.parse::<i32>().is_err())
+            })
+    }) {
+        (
+            "protocol",
+            "FreeRDP reported an unsuccessful authentication cleanup result. Review the details.",
+        )
+    } else if process_success || confirmed_authentication {
+        if confirmed_authentication && !process_success {
+            let warning = "FreeRDP explicitly confirmed sign-in, but SDL returned a nonzero process status. The actual exit code is preserved.";
+            runtime_warning = Some(warning.into());
+        }
+        ("success", "NLA authentication succeeded. The server accepted your credentials; a full desktop session was not tested.")
+    } else if lower.contains("authentication only") && lower.contains("errbase_success") {
         ("exit_mismatch", "FreeRDP reported authentication success but the process exited unsuccessfully. Compare CLI authentication to identify a stdin/argv or wrapper difference.")
     } else {
         ("protocol", "The authentication test failed. Review the details for TLS, NLA or server configuration errors.")
@@ -254,7 +282,7 @@ fn classify(success: bool, timed_out: bool, details: String) -> TestResult {
     TestResult {
         exit_code: None,
         transport: String::new(),
-        success,
+        success: kind == "success",
         kind: kind.into(),
         summary: summary.into(),
         details,
@@ -268,9 +296,9 @@ fn classify(success: bool, timed_out: bool, details: String) -> TestResult {
 pub(crate) fn authentication_rejection(details: &str) -> Option<&'static str> {
     let lower = details.to_ascii_lowercase();
     [
+        ("account_locked", "Server reports a locked account (ACCOUNT_LOCKED). Unlock on the server or wait for its lockout policy before retrying."),
         ("no_such_user", "Server reports an unknown username (NO_SUCH_USER). Check your username and domain."),
         ("wrong_password", "Server reports an incorrect password (WRONG_PASSWORD). Enter your password again."),
-        ("account_locked", "Server reports a locked account (ACCOUNT_LOCKED). Your administrator must unlock it."),
         ("password_must_change", "Server requires a password change (PASSWORD_MUST_CHANGE)."),
         ("password_expired", "Server reports an expired password (PASSWORD_EXPIRED)."),
         ("account_expired", "Server reports an expired account (ACCOUNT_EXPIRED)."),
@@ -336,6 +364,64 @@ mod tests {
     use std::fs;
 
     #[test]
+    fn symbolic_cleanup_success_never_overrides_contradictory_auth_errors() {
+        let cleanup = "[sdl_client_cleanup] Authentication only, exit status SUCCESS [0]";
+        assert!(classify(Some(1), false, cleanup.into()).success);
+        let accepted_with_warning = classify(
+            Some(1),
+            false,
+            format!("OpenSSL LEGACY provider failed to load\n{cleanup}"),
+        );
+        assert!(accepted_with_warning.success);
+        assert!(!accepted_with_warning
+            .runtime_warning
+            .unwrap()
+            .contains("NTLM authentication cannot work"));
+        assert!(classify(Some(1), false, format!("Certificate verification failure: self-signed certificate\nAuthentication only, exit status 1\n{cleanup}")).success);
+        assert!(
+            !classify(
+                Some(1),
+                false,
+                format!("Authentication only, exit status AUTH_FAILURE [147]\n{cleanup}")
+            )
+            .success
+        );
+        for code in [None, Some(134), Some(255)] {
+            assert!(!classify(code, false, cleanup.into()).success);
+        }
+        assert!(!classify(Some(1), true, cleanup.into()).success);
+        assert!(!classify(Some(1), false, "Authentication only, exit status 0".into()).success);
+        assert!(
+            !classify(
+                Some(1),
+                false,
+                "Authentication only, ERRBASE_SUCCESS [0x00000000] Success.".into()
+            )
+            .success
+        );
+        for error in [
+            "ERRCONNECT_LOGON_FAILURE",
+            "ERRCONNECT_ACCOUNT_LOCKED_OUT",
+            "certificate not trusted",
+            "ERRCONNECT_TLS_CONNECT_FAILED",
+            "ERRCONNECT_CONNECT_FAILED",
+        ] {
+            let rejected = classify(Some(1), false, format!("{error}\n{cleanup}"));
+            assert!(!rejected.success);
+        }
+        let locked =
+            "STATUS_WRONG_PASSWORD\nERRCONNECT_LOGON_FAILURE\nERRCONNECT_ACCOUNT_LOCKED_OUT";
+        let rejected = classify(Some(1), false, locked.into());
+        assert_eq!(rejected.kind, "credentials");
+        assert!(rejected.summary.contains("locked account"));
+        assert!(rejected.summary.contains("lockout policy"));
+        assert_eq!(
+            crate::session_outcome(false, locked).summary,
+            rejected.summary
+        );
+    }
+
+    #[test]
     fn reports_specific_server_rejections_before_unspecified_logon_failure() {
         for (code, phrase) in [
             ("STATUS_WRONG_PASSWORD", "incorrect password"),
@@ -352,12 +438,12 @@ mod tests {
             ),
         ] {
             let log = format!("ERRCONNECT_LOGON_FAILURE\n{code}");
-            let result = classify(false, false, log.clone());
+            let result = classify(Some(1), false, log.clone());
             assert_eq!(result.kind, "credentials");
             assert!(result.summary.contains(phrase));
             assert_eq!(crate::session_outcome(false, &log).summary, result.summary);
         }
-        let unspecified = classify(false, false, "ERRCONNECT_LOGON_FAILURE".into());
+        let unspecified = classify(Some(1), false, "ERRCONNECT_LOGON_FAILURE".into());
         assert!(unspecified
             .summary
             .contains("exact reason was not supplied"));
@@ -368,16 +454,16 @@ mod tests {
     #[test]
     fn distinguishes_certificate_and_password_failures() {
         let fingerprint = "ab:".repeat(31) + "ab";
-        let result = classify(false, false, format!("certificate not trusted\nThe fingerprint for the host key is {fingerprint}\nlegacy provider failed"));
+        let result = classify(Some(1), false, format!("certificate not trusted\nThe fingerprint for the host key is {fingerprint}\nlegacy provider failed"));
         assert_eq!(result.kind, "certificate");
         assert_eq!(result.fingerprint, Some("ab".repeat(32)));
         assert!(result.runtime_warning.is_some());
         assert_eq!(
-            classify(false, false, "ERRCONNECT_LOGON_FAILURE".into()).kind,
+            classify(Some(1), false, "ERRCONNECT_LOGON_FAILURE".into()).kind,
             "credentials"
         );
         assert_eq!(
-            classify(false, false, "ERRCONNECT_CONNECT_FAILED".into()).kind,
+            classify(Some(1), false, "ERRCONNECT_CONNECT_FAILED".into()).kind,
             "network"
         );
     }
@@ -386,7 +472,7 @@ mod tests {
     fn identifies_changed_certificates_runtime_failures_and_success() {
         assert_eq!(
             classify(
-                false,
+                Some(1),
                 false,
                 "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!".into()
             )
@@ -394,10 +480,10 @@ mod tests {
             "certificate_changed"
         );
         assert_eq!(
-            classify(false, false, "Failed to initialize digest md4".into()).kind,
+            classify(Some(1), false, "Failed to initialize digest md4".into()).kind,
             "runtime"
         );
-        assert_eq!(classify(true, false, String::new()).kind, "success");
+        assert_eq!(classify(Some(0), false, String::new()).kind, "success");
     }
 
     #[test]
@@ -439,7 +525,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn exposes_stdin_cli_mismatch_without_overriding_real_exit_status() {
+    fn accepts_explicit_sdl_auth_success_without_erasing_nonzero_process_status() {
         let _guard = crate::PROCESS_TEST_LOCK.lock().unwrap();
         use std::os::unix::fs::PermissionsExt;
         let directory = tempfile::tempdir().unwrap();
@@ -462,8 +548,13 @@ mod tests {
         };
         let stdin = test_connection(profile.clone(), &client, "a visible password").unwrap();
         let argv = test_connection_argv(profile, &client, "a visible password").unwrap();
-        assert!(!stdin.success);
-        assert_eq!(stdin.kind, "exit_mismatch");
+        assert!(stdin.success);
+        assert_eq!(stdin.kind, "success");
+        assert!(stdin
+            .runtime_warning
+            .as_deref()
+            .unwrap()
+            .contains("actual exit code is preserved"));
         assert_eq!(stdin.transport, "stdin");
         assert_eq!(stdin.exit_code, Some(1));
         assert!(argv.success);

@@ -68,6 +68,7 @@ jobs:
           gh release download v0.1.0-rc.4 --repo jeeftor/rdp --pattern 'freerdp-portable*' --pattern SHA256SUMS --dir .build/portable-input
       - name: Check and build desktop
         run: |
+          python3 -m unittest discover -s desktop/tests -p 'test_*.py'
           bash desktop/tests/portable-notices.sh
           bash tests/capture-window-test.sh
           make gui-check gui-build
@@ -131,6 +132,7 @@ jobs:
           name: rdpctl-desktop-linux-x86_64
           if-no-files-found: warn
           compression-level: 0
+          overwrite: true
           path: |
             output/rdpctl-gui*
             output/rdpctl-portable*

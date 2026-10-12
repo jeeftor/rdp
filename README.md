@@ -166,3 +166,5 @@ The desktop interface uses a compact Vue/PrimeVue connections table and modal
 Edit/Test dialogs. **Test all video modes** opens real desktops sequentially and
 captures X11 window evidence; you explicitly confirm a usable picture. See
 [the desktop guide](desktop/README.md) for capture limits and diagnostics.
+**Disconnect** closes this GUI's active desktops for a connection without
+signing you out of Windows.

@@ -18,6 +18,7 @@ export function preferredMode(confirmed, availability) {
 
 export function trialLabel(trial) {
   if (trial?.skipped) return 'Not tested';
+  if (trial?.kind === 'disconnected') return 'Disconnected';
   if (isAccountLocked(trial)) return 'Account locked';
   if (trial?.kind === 'credentials') return 'Sign-in failed';
   if (trial?.kind === 'certificate' || trial?.kind === 'certificate_changed') return 'Certificate rejected';
@@ -46,7 +47,7 @@ export function authenticationLabel(outcome) {
 
 export function canConfirmTrial(trial, available) {
   if (!available || !trial || isAccountLocked(trial) || ['credentials', 'renderer', 'crash', 'certificate', 'certificate_changed', 'failed'].includes(trial.kind)) return false;
-  return Boolean(trial.desktop_initialized || ['running', 'initialized', 'closed'].includes(trial.kind));
+  return Boolean(trial.desktop_initialized || ['running', 'initialized', 'closed', 'disconnected'].includes(trial.kind));
 }
 
 export function wizardCanEnter(step, reachability, trustReviewed, authentication = []) {

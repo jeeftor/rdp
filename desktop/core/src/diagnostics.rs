@@ -233,6 +233,15 @@ impl DiagnosticHistory {
         }
         outcome
     }
+    /// Record an intentional GUI disconnect without claiming authentication or desktop success.
+    pub fn finish_disconnected(&self, stamp: u128, code: Option<i32>) -> SessionOutcome {
+        let mut outcome = self.finish(stamp, false, code);
+        outcome.kind = "disconnected".into();
+        outcome.summary = "Disconnected from GUI.".into();
+        self.video_outcome(stamp, outcome.clone());
+        outcome
+    }
+
     /// Retain private screenshot metadata alongside a captured desktop attempt.
     pub(crate) fn screenshot(&self, stamp: u128, evidence: serde_json::Value) {
         if let Some(record) = self
@@ -412,6 +421,23 @@ mod tests {
         } else {
             std::env::remove_var("XDG_STATE_HOME");
         }
+    }
+
+    #[test]
+    fn intentional_disconnect_preserves_exit_status_and_graphics_without_failure_claim() {
+        let history = DiagnosticHistory::default();
+        let stamp = history.start(
+            "a",
+            "desktop",
+            "command".into(),
+            "FreeRDP graphics: x11/opengl passed frame presentation (AMD)".into(),
+        );
+        let outcome = history.finish_disconnected(stamp, Some(143));
+        assert_eq!(outcome.kind, "disconnected");
+        assert!(outcome.graphics.contains("AMD"));
+        let records = history.0.lock().unwrap();
+        assert_eq!(records[0].exit_code, Some(143));
+        assert_eq!(records[0].outcome.as_ref().unwrap().kind, "disconnected");
     }
 
     #[test]

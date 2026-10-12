@@ -11,6 +11,8 @@ import Select from 'primevue/select';
 import Tag from 'primevue/tag';
 import { authenticationLabel, canConfirmTrial, isAccountLocked, wizardCanEnter, graphicsMode, preferredMode, trialLabel, videoModes } from './video.js';
 
+import { beginSessionOperation, createSessionState, finishSessionOperation, hasSessions, recordSessionEnded, recordSessionStarted, replaceSessions } from './sessions.js';
+
 const tauri = window.__TAURI__;
 const invoke = (command, args) => tauri.core.invoke(command, args);
 const profiles = ref([]);
@@ -30,6 +32,7 @@ const testState = reactive({});
 const certificateBackup = ref(false);
 const unlisten = [];
 const activeTrial = ref(null);
+const sessions = reactive(createSessionState());
 const guided = ref(false);
 const guideStep = ref(1);
 const trustReviewed = ref(false);
@@ -79,6 +82,7 @@ async function run(action) {
 async function refresh() {
   availability.value = await invoke('video_availability');
   profiles.value = await invoke('list_profiles');
+  await refreshSessions();
   if (selected.value) selected.value = profiles.value.find(profile => profile.id === selected.value.id) || null;
   message(`${profiles.value.length} connection${profiles.value.length === 1 ? '' : 's'}`);
 }
@@ -151,11 +155,34 @@ async function detect() {
     message(missing.length ? `Monitor IDs ${missing.join(',')} unavailable; select displays or clear IDs.` : `${monitors.value.length} displays found`, missing.length > 0);
   });
 }
+async function refreshSessions() {
+  beginSessionOperation(sessions);
+  try { replaceSessions(sessions, await invoke('list_sessions')); }
+  finally { finishSessionOperation(sessions); }
+}
+async function launchDesktop(args) {
+  beginSessionOperation(sessions);
+  try {
+    const launched = await invoke('launch_profile', args);
+    recordSessionStarted(sessions, { id: args.id, pid: launched.pid });
+    return launched;
+  } finally { finishSessionOperation(sessions); }
+}
+async function disconnect(profile) {
+  await run(async () => {
+    const count = await invoke('disconnect_profile', { id: profile.id });
+    await refreshSessions();
+    message(count ? `Disconnected ${profile.name}` : 'This desktop has already closed.');
+  });
+}
 async function connect(profile, credential = null) {
   await run(async () => {
-    const launched = await invoke('launch_profile', { id: profile.id, password: credential });
-    Object.assign(state(profile.id), { command: launched.command, graphics: launched.graphics, live: '' });
-    message(`Opened ${profile.name}`);
+    const saved = state(profile.id);
+    saved.live = '';
+    const launched = await launchDesktop({ id: profile.id, password: credential });
+    const alive = sessions.active.has(launched.pid);
+    Object.assign(saved, { command: launched.command, graphics: alive ? launched.graphics : saved.graphics || launched.graphics });
+    if (alive) message(`Opened ${profile.name}`);
   });
 }
 function openTests(profile, wizard = false) {
@@ -252,7 +279,7 @@ async function openDesktop(row, credential = null) {
     state(id).live = '';
     current.value.trials[row.value] = { kind: 'running', summary: 'Opening desktop…' };
     try {
-      const launched = await invoke('launch_profile', { id, password: credential ?? (guided.value ? guideCredential.value : null), videoMode: row.value });
+      const launched = await launchDesktop({ id, password: credential ?? (guided.value ? guideCredential.value : null), videoMode: row.value });
       const saved = state(id);
       const trial = saved.trials[row.value];
       const stillRunning = activeTrial.value?.id === id && activeTrial.value?.mode === row.value;
@@ -324,6 +351,7 @@ onMounted(async () => {
     saved.live = (saved.live + payload.line + '\n').slice(-65536);
   }));
   unlisten.push(await tauri.event.listen('session-ended', ({ payload }) => {
+    recordSessionEnded(sessions, payload.pid);
     const saved = state(payload.id);
     saved.graphics = payload.outcome.graphics;
     const endedMode = activeTrial.value?.id === payload.id ? activeTrial.value.mode : null;
@@ -332,8 +360,8 @@ onMounted(async () => {
       saved.trials[activeTrial.value.mode] = { ...previous, ...payload.outcome, exit_code: payload.code, details: saved.live };
       activeTrial.value = null;
     }
-    message(`${payload.name}: ${payload.outcome.summary}`, !['initialized', 'closed'].includes(payload.outcome.kind));
-    if (!payload.video_test || endedMode) queueRetry(profiles.value.find(profile => profile.id === payload.id), payload.outcome, payload.video_test ? 'desktop' : 'connect', endedMode);
+    message(payload.disconnected ? `Disconnected ${payload.name}` : `${payload.name}: ${payload.outcome.summary}`, !payload.disconnected && !['initialized', 'closed'].includes(payload.outcome.kind));
+    if (!payload.disconnected && (!payload.video_test || endedMode)) queueRetry(profiles.value.find(profile => profile.id === payload.id), payload.outcome, payload.video_test ? 'desktop' : 'connect', endedMode);
   }));
   await run(refresh);
 });
@@ -358,6 +386,7 @@ onUnmounted(() => unlisten.forEach(stop => stop()));
         <Column header="Actions" :style="{ width: '20rem' }"><template #body="{ data }">
           <div class="actions" :data-profile-id="data.id">
             <Button label="Connect" size="small" data-testid="connect" :disabled="busy || !!activeTrial" @click="connect(data)" />
+            <Button v-if="hasSessions(sessions, data.id)" label="Disconnect" size="small" severity="secondary" outlined data-testid="disconnect" :disabled="busy" title="Close this profile's desktop clients without requesting remote sign-out" @click="disconnect(data)" />
             <Button label="Edit" size="small" severity="secondary" outlined data-testid="edit" :disabled="busy" @click="edit(data)" />
             <Button label="Test" size="small" severity="secondary" outlined data-testid="test" :disabled="busy" @click="openTests(data)" />
             <Button label="Troubleshoot" size="small" severity="secondary" outlined data-testid="troubleshoot" :disabled="busy || !!activeTrial" @click="openWizard(data)" />
@@ -429,7 +458,7 @@ onUnmounted(() => unlisten.forEach(stop => stop()));
         <div v-for="auth in current.auth" :key="auth.transport" class="auth-result" data-testid="authentication-result">
           <Tag :value="authenticationLabel(auth)" :severity="auth.success ? 'success' : 'danger'" />
           <span>{{ auth.transport }} · {{ auth.summary }} <span v-if="auth.exit_code != null">(exit {{ auth.exit_code }})</span></span>
-          <details><summary>Details / command</summary><pre>{{ auth.command }}</pre><Button label="Copy command" size="small" severity="secondary" outlined @click="copyCommand(auth.command)" /><pre>{{ auth.details }}</pre><p v-if="auth.runtime_warning">{{ auth.runtime_warning }}</p></details>
+          <details><summary>Details / command</summary><pre>{{ auth.command }}</pre><Button label="Copy command" size="small" severity="secondary" outlined @click="copyCommand(auth.command)" /><pre>{{ auth.details }}</pre></details><small v-if="auth.runtime_warning" class="muted" data-testid="authentication-warning">{{ auth.runtime_warning }}</small>
           <div class="actions" v-if="auth.fingerprint || ['certificate', 'certificate_changed'].includes(auth.kind)">
             <Button v-if="auth.fingerprint" label="Pin detected fingerprint" size="small" severity="secondary" outlined data-testid="pin-fingerprint" @click="pinFingerprint(auth)" />
             <Button v-if="['certificate', 'certificate_changed'].includes(auth.kind)" label="Back up remembered certificate" size="small" severity="secondary" outlined data-testid="backup-certificate" @click="certificateBackup = true" />
@@ -464,7 +493,7 @@ onUnmounted(() => unlisten.forEach(stop => stop()));
           <p>{{ current.graphics }}</p><pre>{{ current.live }}</pre>
         </details>
       </div>
-      <template #footer><Button label="Export diagnostics" size="small" severity="secondary" outlined data-testid="export-diagnostics" :disabled="busy" @click="exportDiagnostics" /><Button label="Close" size="small" severity="secondary" outlined @click="testsOpen = false" /></template>
+      <template #footer><Button v-if="selected && hasSessions(sessions, selected.id)" label="Disconnect" size="small" severity="secondary" outlined data-testid="disconnect-test" :disabled="busy" title="Close this profile's desktop clients" @click="disconnect(selected)" /><Button label="Export diagnostics" size="small" severity="secondary" outlined data-testid="export-diagnostics" :disabled="busy" @click="exportDiagnostics" /><Button label="Close" size="small" severity="secondary" outlined @click="testsOpen = false" /></template>
     </Dialog>
     <Dialog v-model:visible="deleteOpen" modal header="Delete connection?" :style="{ width: '28rem' }" data-testid="delete-dialog">
       <p v-if="error" class="error" role="alert">{{ status }}</p>
