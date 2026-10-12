@@ -82,7 +82,9 @@ def main() -> None:
             return struct.pack('!I', len(data)) + kind + data + struct.pack('!I', zlib.crc32(kind + data))
         png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!2I5B', 1, 1, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(b'\x00\xff\x00\x00')) + chunk(b'IEND', b'')
         capture = root / "bin/rdp-capture-window"
-        capture.write_text('#!/usr/bin/env python3\nimport json, os, sys\npath=sys.argv[sys.argv.index("--output")+1]\nfd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\nos.write(fd,' + repr(png) + ')\nos.close(fd)\nprint(json.dumps({"status":"content","reason":"Fixture image has content; appearance unconfirmed","file":path,"width":1,"height":1,"nonblack_ratio":1.0,"variance":1200.0,"capture_method":"composite"}))\n')
+        # Shell builtins avoid loading host Python with the bundle's library environment.
+        escaped_png = ''.join(f'\\0{byte:03o}' for byte in png)
+        capture.write_text('#!/bin/sh\nset -eu\n(umask 077; set -C; printf \'%b\' \'' + escaped_png + '\' > "$4")\nprintf \'{"status":"content","reason":"Fixture image has content; appearance unconfirmed","file":"%s","width":1,"height":1,"nonblack_ratio":1.0,"variance":1200.0,"capture_method":"composite"}\\n\' "$4"\n')
         capture.chmod(0o700)
         environment = dict(os.environ, XDG_CONFIG_HOME=str(root), XDG_STATE_HOME=str(root / 'state'), RDPCTL_FREERDP=str(client))
         if bundled_monitors:
