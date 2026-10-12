@@ -56,7 +56,7 @@ FreeRDP, the Rust GUI and GTK/WebKit runtime. Verify `SHA256SUMS` first.
 
 ```bash
 sha256sum --ignore-missing --check SHA256SUMS
-sudo dnf --disablerepo='*' install ./rdp-*.x86_64.rpm
+sudo rpm -Uvh --replacepkgs ./rdp-*.x86_64.rpm
 ```
 
 The RPM also replaces the previous `rdpctl-portable` RPM. The combined

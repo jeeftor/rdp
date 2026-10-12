@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import Checkbox from 'primevue/checkbox';
 import Column from 'primevue/column';
@@ -9,7 +9,7 @@ import InputText from 'primevue/inputtext';
 import Message from 'primevue/message';
 import Select from 'primevue/select';
 import Tag from 'primevue/tag';
-import { authenticationLabel, canConfirmTrial, graphicsMode, preferredMode, trialLabel, videoModes } from './video.js';
+import { authenticationLabel, canConfirmTrial, isAccountLocked, wizardCanEnter, graphicsMode, preferredMode, trialLabel, videoModes } from './video.js';
 
 const tauri = window.__TAURI__;
 const invoke = (command, args) => tauri.core.invoke(command, args);
@@ -23,12 +23,24 @@ const testsOpen = ref(false);
 const selected = ref(null);
 const editor = reactive({});
 const password = ref('');
+const originalPassword = ref('');
 const rememberPassword = ref(true);
 const monitors = ref([]);
 const testState = reactive({});
 const certificateBackup = ref(false);
 const unlisten = [];
 const activeTrial = ref(null);
+const guided = ref(false);
+const guideStep = ref(1);
+const trustReviewed = ref(false);
+const guidePassword = ref('');
+const guideCredential = ref(null);
+const pendingFailure = ref(null);
+const pendingRetry = ref(null);
+const deleteOpen = ref(false);
+const deleteTarget = ref(null);
+const guideSteps = ['Server', 'Trust / credentials', 'Sign-in', 'Video'];
+const videoAllowed = computed(() => !guided.value || wizardCanEnter(4, current.value?.reachability, trustReviewed.value, current.value?.auth));
 
 const policies = [
   { value: 'verify', label: 'Verify certificate' },
@@ -54,7 +66,7 @@ const selectedMonitors = computed({
 
 function message(text, failed = false) { status.value = text; error.value = failed; }
 function state(id) {
-  if (!testState[id]) testState[id] = { auth: [], trials: {}, command: '', details: '', graphics: '', live: '' };
+  if (!testState[id]) testState[id] = { auth: [], trials: {}, reachability: null, command: '', details: '', graphics: '', live: '' };
   return testState[id];
 }
 function modeLabel(profile) { return videoModes.find(mode => mode.value === graphicsMode(profile))?.label || 'Automatic'; }
@@ -70,18 +82,26 @@ async function refresh() {
   if (selected.value) selected.value = profiles.value.find(profile => profile.id === selected.value.id) || null;
   message(`${profiles.value.length} connection${profiles.value.length === 1 ? '' : 's'}`);
 }
-async function edit(profile = null) {
+async function edit(profile = null, retry = null) {
   await run(async () => {
+    pendingRetry.value = retry;
     Object.assign(editor, profile || { id: '', name: '', host: '', user: '', certificate: 'verify', fingerprint: '',
       fullscreen: false, multi_monitor: false, monitors: '', working_video_modes: [] });
     editor.video_mode = profile ? graphicsMode(profile) : 'auto';
     password.value = profile ? (await invoke('saved_password', { id: profile.id })) || '' : '';
+    originalPassword.value = password.value;
     rememberPassword.value = true;
     monitors.value = [];
     editorOpen.value = true;
   });
 }
 async function save() {
+  const retry = pendingRetry.value;
+  const entered = retry ? password.value : password.value || null;
+  const before = profiles.value.find(profile => profile.id === editor.id);
+  const hostChanged = Boolean(before && before.host !== editor.host);
+  const identityChanged = Boolean(before && (before.user !== editor.user || (before.certificate || 'verify') !== editor.certificate || (before.fingerprint || '') !== (editor.fingerprint || '') || originalPassword.value !== password.value));
+  let saved = null;
   await run(async () => {
     const value = { ...editor, software_rendering: editor.video_mode === 'x11-software' };
     const profile = await invoke(editor.id ? 'update_profile' : 'create_profile', { profile: value });
@@ -90,7 +110,39 @@ async function save() {
     editorOpen.value = false;
     await refresh();
     message(`Saved ${profile.name}`);
+    saved = profile;
+    if (hostChanged || identityChanged) state(profile.id).auth = [];
+    if (guided.value && selected.value?.id === profile.id) {
+      guidePassword.value = (await invoke('saved_password', { id: profile.id })) || '';
+      if (hostChanged || identityChanged) {
+        trustReviewed.value = false;
+        guideCredential.value = null;
+        guideStep.value = hostChanged ? 1 : 2;
+      }
+      if (hostChanged) { current.value.reachability = null; message('Server changed. Check reachability again.'); }
+    }
   });
+  if (saved && retry && !retry.locked && !hostChanged) {
+    pendingRetry.value = null;
+    selected.value = profiles.value.find(profile => profile.id === saved.id) || saved;
+    state(saved.id);
+    if (guided.value) { guideCredential.value = entered; guidePassword.value = entered || ''; trustReviewed.value = true; guideStep.value = 3; }
+    if (retry.action === 'connect') await connect(selected.value, entered);
+    else if (retry.action === 'desktop' && guided.value) {
+      await authenticate(false, entered);
+      if (current.value.auth.some(outcome => outcome.success)) await openDesktop({ value: retry.mode }, entered);
+    }
+    else if (retry.action === 'desktop') await openDesktop({ value: retry.mode }, entered);
+    else if (retry.action === 'all' && guided.value) {
+      await authenticate(false, entered);
+      if (current.value.auth.some(outcome => outcome.success)) await testAll(entered);
+    }
+    else if (retry.action === 'all') await testAll(entered);
+    else await authenticate(retry.action === 'compare', entered);
+  } else if (saved && retry && hostChanged && !guided.value) {
+    await openWizard(saved);
+    message('Server changed. Check reachability before retrying.');
+  }
 }
 async function detect() {
   await run(async () => {
@@ -99,34 +151,87 @@ async function detect() {
     message(missing.length ? `Monitor IDs ${missing.join(',')} unavailable; select displays or clear IDs.` : `${monitors.value.length} displays found`, missing.length > 0);
   });
 }
-async function connect(profile) {
+async function connect(profile, credential = null) {
   await run(async () => {
-    const launched = await invoke('launch_profile', { id: profile.id, password: null });
+    const launched = await invoke('launch_profile', { id: profile.id, password: credential });
     Object.assign(state(profile.id), { command: launched.command, graphics: launched.graphics, live: '' });
     message(`Opened ${profile.name}`);
   });
 }
-function openTests(profile) {
+function openTests(profile, wizard = false) {
+  guided.value = wizard;
   selected.value = profile;
   state(profile.id);
   certificateBackup.value = false;
   testsOpen.value = true;
 }
-async function authenticate(compare = false) {
+async function openWizard(profile) {
   await run(async () => {
-    const result = await invoke(compare ? 'compare_authentication' : 'test_profile', { id: selected.value.id, password: null });
-    current.value.auth = compare ? result : [result];
-    message(compare ? 'Authentication comparison complete' : result.summary, !compare && !result.success);
+    openTests(profile, true);
+    guideStep.value = 1;
+    trustReviewed.value = false;
+    guideCredential.value = null;
+    current.value.reachability = null;
+    current.value.auth = [];
+    guidePassword.value = (await invoke('saved_password', { id: profile.id })) || '';
+    message('Check server reachability first.');
   });
 }
-async function testAll() {
+async function reachability() {
+  await run(async () => {
+    current.value.reachability = await invoke('test_reachability', { id: selected.value.id });
+    message(current.value.reachability.summary, !current.value.reachability.success);
+    if (current.value.reachability.success) guideStep.value = 2;
+  });
+}
+function reviewTrust() {
+  trustReviewed.value = true;
+  guideStep.value = 3;
+  message('Test sign-in with the displayed credentials and certificate policy.');
+}
+function queueRetry(profile, outcome, action, mode = null) {
+  if (!profile || outcome.success) return;
+  const diagnostic = { ...outcome, details: outcome.details || state(profile.id).live };
+  if (isAccountLocked(diagnostic) || outcome.kind === 'credentials' || (guided.value && ['certificate', 'certificate_changed'].includes(outcome.kind))) {
+    pendingFailure.value = { profile, summary: outcome.summary, details: diagnostic.details, locked: isAccountLocked(diagnostic), action, mode };
+  }
+}
+watch([busy, pendingFailure, editorOpen], async ([running, failure, editing]) => {
+  if (running || !failure || editing) return;
+  pendingFailure.value = null;
+  await edit(failure.profile, failure);
+});
+async function removeProfile() {
+  await run(async () => {
+    const target = deleteTarget.value;
+    await invoke('delete_profile', { id: target.id });
+    deleteOpen.value = false;
+    editorOpen.value = false;
+    if (selected.value?.id === target.id) testsOpen.value = false;
+    delete testState[target.id];
+    await refresh();
+    message(`Deleted ${target.name}`);
+  });
+}
+async function authenticate(compare = false, credential = null) {
+  await run(async () => {
+    const result = await invoke(compare ? 'compare_authentication' : 'test_profile', { id: selected.value.id, password: credential ?? (guided.value ? guideCredential.value : null) });
+    current.value.auth = compare ? result : [result];
+    message(compare ? 'Authentication comparison complete' : result.summary, !compare && !result.success);
+    const rejected = current.value.auth.find(outcome => !outcome.success);
+    if (rejected) queueRetry(selected.value, rejected, compare ? 'compare' : 'auth');
+    else if (guided.value) guideStep.value = 4;
+  });
+}
+async function testAll(credential = null) {
+  if (!videoAllowed.value) { message('Complete reachability, trust review and sign-in before video tests.', true); return; }
   await run(async () => {
     message('Testing sign-in, then each available graphics mode (up to 15 seconds each)…');
     current.value.trials = {};
     current.value.auth = [];
     let result;
     try {
-      result = await invoke('run_video_tests', { id: selected.value.id, password: null });
+      result = await invoke('run_video_tests', { id: selected.value.id, password: credential ?? (guided.value ? guideCredential.value : null) });
     } catch (failure) {
       for (const trial of Object.values(current.value.trials)) {
         if (trial.kind === 'testing') { trial.kind = 'failed'; trial.summary = String(failure); }
@@ -136,16 +241,18 @@ async function testAll() {
     current.value.auth = [result.authentication];
     for (const trial of result.trials) current.value.trials[trial.mode] = trial;
     message(result.authentication.success ? 'Tests complete. Confirm only desktops you saw.' : 'Sign-in not completed; desktop modes were not tested.', !result.authentication.success);
+    if (!result.authentication.success) queueRetry(selected.value, result.authentication, 'all');
   });
 }
-async function openDesktop(row) {
+async function openDesktop(row, credential = null) {
+  if (!videoAllowed.value) return;
   await run(async () => {
     const id = selected.value.id;
     activeTrial.value = { id, mode: row.value };
     state(id).live = '';
     current.value.trials[row.value] = { kind: 'running', summary: 'Opening desktop…' };
     try {
-      const launched = await invoke('launch_profile', { id, password: null, videoMode: row.value });
+      const launched = await invoke('launch_profile', { id, password: credential ?? (guided.value ? guideCredential.value : null), videoMode: row.value });
       const saved = state(id);
       const trial = saved.trials[row.value];
       const stillRunning = activeTrial.value?.id === id && activeTrial.value?.mode === row.value;
@@ -219,12 +326,14 @@ onMounted(async () => {
   unlisten.push(await tauri.event.listen('session-ended', ({ payload }) => {
     const saved = state(payload.id);
     saved.graphics = payload.outcome.graphics;
+    const endedMode = activeTrial.value?.id === payload.id ? activeTrial.value.mode : null;
     if (payload.video_test && activeTrial.value?.id === payload.id && (!activeTrial.value.pid || activeTrial.value.pid === payload.pid)) {
       const previous = saved.trials[activeTrial.value.mode] || {};
       saved.trials[activeTrial.value.mode] = { ...previous, ...payload.outcome, exit_code: payload.code, details: saved.live };
       activeTrial.value = null;
     }
     message(`${payload.name}: ${payload.outcome.summary}`, !['initialized', 'closed'].includes(payload.outcome.kind));
+    if (!payload.video_test || endedMode) queueRetry(profiles.value.find(profile => profile.id === payload.id), payload.outcome, payload.video_test ? 'desktop' : 'connect', endedMode);
   }));
   await run(refresh);
 });
@@ -246,11 +355,12 @@ onUnmounted(() => unlisten.forEach(stop => stop()));
         <Column field="host" header="Host" />
         <Column field="user" header="User" />
         <Column header="Graphics"><template #body="{ data }"><span>{{ modeLabel(data) }}</span></template></Column>
-        <Column header="Actions" :style="{ width: '15rem' }"><template #body="{ data }">
+        <Column header="Actions" :style="{ width: '20rem' }"><template #body="{ data }">
           <div class="actions" :data-profile-id="data.id">
             <Button label="Connect" size="small" data-testid="connect" :disabled="busy || !!activeTrial" @click="connect(data)" />
             <Button label="Edit" size="small" severity="secondary" outlined data-testid="edit" :disabled="busy" @click="edit(data)" />
             <Button label="Test" size="small" severity="secondary" outlined data-testid="test" :disabled="busy" @click="openTests(data)" />
+            <Button label="Troubleshoot" size="small" severity="secondary" outlined data-testid="troubleshoot" :disabled="busy || !!activeTrial" @click="openWizard(data)" />
           </div>
         </template></Column>
         <template #empty>No connections yet. Choose New connection.</template>
@@ -258,8 +368,9 @@ onUnmounted(() => unlisten.forEach(stop => stop()));
     </main>
     <footer id="status" role="status" aria-live="polite" :class="{ error }">{{ status }}</footer>
 
-    <Dialog v-model:visible="editorOpen" modal :header="editor.id ? 'Edit connection' : 'New connection'" class="editor-dialog" :style="{ width: '40rem' }" :breakpoints="{ '700px': '95vw' }" data-testid="editor-dialog">
-      <p v-if="error" class="error dialog-status" role="alert">{{ status }}</p>
+    <Dialog v-model:visible="editorOpen" modal :header="pendingRetry ? 'Review sign-in / trust' : editor.id ? 'Edit connection' : 'New connection'" @hide="pendingRetry = null" class="editor-dialog" :style="{ width: '40rem' }" :breakpoints="{ '700px': '95vw' }" data-testid="editor-dialog">
+      <Message v-if="pendingRetry" severity="warn" :closable="false" data-testid="retry-reason">{{ pendingRetry.summary }}<p v-if="pendingRetry.locked">Unlock the account on the server or wait for its lockout policy before testing again. Saving changes will not retry.</p><details v-if="pendingRetry.details"><summary>Diagnostic details</summary><pre>{{ pendingRetry.details }}</pre></details></Message>
+      <p v-else-if="error" class="error dialog-status" role="alert">{{ status }}</p>
       <form id="profile-form" class="form-grid" @submit.prevent="save">
         <label>Name<InputText v-model="editor.name" name="name" required maxlength="160" size="small" data-testid="profile-name" /></label>
         <label>Host<InputText v-model="editor.host" name="host" required maxlength="255" size="small" data-testid="profile-host" /></label>
@@ -283,21 +394,38 @@ onUnmounted(() => unlisten.forEach(stop => stop()));
       </form>
       <template #footer>
         <Button v-if="editor.id" label="Forget password" size="small" severity="secondary" text data-testid="forget-password" :disabled="busy" @click="run(async () => { await invoke('forget_password', { id: editor.id }); password = ''; message('Saved password removed'); })" />
-        <Button label="Cancel" size="small" severity="secondary" outlined @click="editorOpen = false" />
-        <Button label="Save connection" size="small" type="submit" form="profile-form" data-testid="save-connection" :disabled="busy" />
+        <Button v-if="editor.id" label="Delete" size="small" severity="danger" outlined data-testid="delete-connection" :disabled="busy" @click="deleteTarget = profiles.find(profile => profile.id === editor.id) || { id: editor.id, name: editor.name }; error = false; deleteOpen = true" />
+        <Button label="Cancel" size="small" severity="secondary" outlined data-testid="cancel-editor" @click="pendingRetry = null; editorOpen = false" />
+        <Button :label="pendingRetry && !pendingRetry.locked ? 'Save and retry' : 'Save connection'" size="small" type="submit" form="profile-form" data-testid="save-connection" :disabled="busy" />
       </template>
     </Dialog>
 
-    <Dialog v-model:visible="testsOpen" modal :header="selected ? `Test · ${selected.name}` : 'Connection tests'" class="test-dialog" :style="{ width: '57rem' }" :breakpoints="{ '1000px': '95vw' }" data-testid="test-dialog">
+    <Dialog v-model:visible="testsOpen" modal :header="selected ? `${guided ? 'Troubleshoot' : 'Test'} · ${selected.name}` : 'Connection tests'" class="test-dialog" :style="{ width: '57rem' }" :breakpoints="{ '1000px': '95vw' }" data-testid="test-dialog">
       <div v-if="current" class="tests-content">
         <p class="dialog-status" :class="{ error }" role="status" data-testid="test-status">{{ status }}</p>
-        <div class="actions test-toolbar">
-          <Button label="Test all video modes" size="small" data-testid="test-all" :disabled="busy || !!activeTrial" :loading="busy" @click="testAll" />
+        <nav v-if="guided" class="guide-nav" aria-label="Troubleshooting steps" data-testid="wizard-steps">
+          <Button v-for="(step, index) in guideSteps" :key="step" :label="`${index + 1}. ${step}`" size="small" :severity="guideStep === index + 1 ? 'primary' : 'secondary'" :outlined="guideStep !== index + 1" :disabled="busy || !wizardCanEnter(index + 1, current.reachability, trustReviewed, current.auth)" :data-testid="`wizard-step-${index + 1}`" @click="guideStep = index + 1" />
+        </nav>
+        <section v-if="guided && guideStep === 1" class="guide-stage" data-testid="wizard-server">
+          <p>Check whether {{ selected.host }} accepts a TCP connection.</p>
+          <div class="actions"><Button label="Check server" size="small" data-testid="check-reachability" :disabled="busy" @click="reachability" /><Button label="Edit server" size="small" severity="secondary" outlined data-testid="wizard-edit-server" :disabled="busy" @click="edit(selected)" /></div>
+          <p v-if="current.reachability" data-testid="wizard-reachability-result">{{ current.reachability.summary }}</p>
+          <details v-if="current.reachability"><summary>Details</summary><pre>{{ current.reachability.details }}</pre></details>
+        </section>
+        <section v-if="guided && guideStep === 2" class="guide-stage" data-testid="wizard-trust">
+          <p>Certificate: <strong>{{ policies.find(policy => policy.value === selected.certificate)?.label || 'Verify certificate' }}</strong><span v-if="selected.fingerprint"> · {{ selected.fingerprint }}</span></p>
+          <div class="form-grid"><label>User<InputText :model-value="selected.user" readonly size="small" /></label><label>Password<InputText :model-value="guidePassword" readonly type="text" size="small" data-testid="wizard-password" /></label></div>
+          <p class="hint">Review the username/domain and your certificate policy. Nothing is changed automatically.</p>
+          <div class="actions"><Button label="Edit trust / credentials" size="small" severity="secondary" outlined data-testid="wizard-edit" :disabled="busy" @click="edit(selected)" /><Button label="Continue to sign-in" size="small" data-testid="wizard-review-trust" :disabled="busy" @click="reviewTrust" /></div>
+        </section>
+        <div v-show="!guided || guideStep >= 3" class="actions test-toolbar">
+          <Button label="Test all video modes" size="small" data-testid="test-all" :disabled="busy || !!activeTrial || !videoAllowed" :loading="busy" @click="testAll()" />
           <Button label="Test sign-in" size="small" severity="secondary" outlined data-testid="test-authentication" :disabled="busy || !!activeTrial" @click="authenticate()" />
           <Button label="Compare CLI sign-in" size="small" severity="secondary" outlined data-testid="compare-authentication" :disabled="busy || !!activeTrial" @click="authenticate(true)" />
           <Button label="Edit" size="small" severity="secondary" outlined data-testid="test-edit" :disabled="busy" @click="edit(selected)" />
+          <Button v-if="!guided" label="Troubleshoot" size="small" severity="secondary" outlined data-testid="test-troubleshoot" :disabled="busy || !!activeTrial" @click="openWizard(selected)" />
         </div>
-        <p class="hint">Tests open each desktop for up to 15 seconds. Only you can confirm its picture. Saved mode: <strong>{{ modeLabel(selected) }}</strong>.</p>
+        <p v-if="!guided || guideStep === 4" class="hint">Tests open each desktop for up to 15 seconds. Only you can confirm its picture. Saved mode: <strong>{{ modeLabel(selected) }}</strong>.</p>
         <div v-for="auth in current.auth" :key="auth.transport" class="auth-result" data-testid="authentication-result">
           <Tag :value="authenticationLabel(auth)" :severity="auth.success ? 'success' : 'danger'" />
           <span>{{ auth.transport }} · {{ auth.summary }} <span v-if="auth.exit_code != null">(exit {{ auth.exit_code }})</span></span>
@@ -308,7 +436,7 @@ onUnmounted(() => unlisten.forEach(stop => stop()));
           </div>
         </div>
         <Message v-if="certificateBackup" severity="warn" :closable="false">Back up only this host's certificate? Choose a trust policy before retesting. <Button label="Confirm backup" size="small" data-testid="confirm-certificate-backup" @click="backupCertificate" /></Message>
-        <DataTable :value="trialRows" :row-class="row => row.trial?.kind === 'testing' ? 'active-video-test' : null" data-key="value" size="small" class="video-table" data-testid="video-results">
+        <DataTable v-if="!guided || guideStep === 4" :value="trialRows" :row-class="row => row.trial?.kind === 'testing' ? 'active-video-test' : null" data-key="value" size="small" class="video-table" data-testid="video-results">
           <Column field="label" header="Mode" :style="{ width: '10.5rem' }" />
           <Column header="Result"><template #body="{ data }">
             <span :class="{ testing: data.trial?.kind === 'testing' }" :data-testid="`result-${data.value}`">{{ data.status }}</span>
@@ -324,11 +452,11 @@ onUnmounted(() => unlisten.forEach(stop => stop()));
             </details>
           </template></Column>
           <Column header="Actions" :style="{ width: '19rem' }"><template #body="{ data }"><div class="actions">
-            <Button label="Open desktop" size="small" severity="secondary" outlined :data-testid="`open-${data.value}`" :disabled="busy || !data.available || !!activeTrial" :title="data.reason" @click="openDesktop(data)" />
-            <Button label="I saw the desktop" size="small" severity="secondary" outlined :data-testid="`confirm-${data.value}`" :disabled="busy || !canConfirm(data)" @click="confirmMode(data)" />
+            <Button label="Open desktop" size="small" severity="secondary" outlined :data-testid="`open-${data.value}`" :disabled="busy || !data.available || !!activeTrial || !videoAllowed" :title="data.reason" @click="openDesktop(data)" />
+            <Button label="I saw the desktop" size="small" severity="secondary" outlined :data-testid="`confirm-${data.value}`" :disabled="busy || !videoAllowed || !canConfirm(data)" @click="confirmMode(data)" />
           </div></template></Column>
         </DataTable>
-        <p class="hint">Confirmed preference: OpenGL → OpenGL ES → software. Graphics probes and sign-in do not prove a usable picture.</p>
+        <p v-if="!guided || guideStep === 4" class="hint">Confirmed preference: OpenGL → OpenGL ES → software. Graphics probes and sign-in do not prove a usable picture.</p>
         <details data-testid="session-log"><summary>Live command / log</summary>
           <p class="hint">Commands and exports include your password.</p>
           <pre data-testid="session-command">{{ current.command || 'Connect or open a desktop to capture its command.' }}</pre>
@@ -337,6 +465,12 @@ onUnmounted(() => unlisten.forEach(stop => stop()));
         </details>
       </div>
       <template #footer><Button label="Export diagnostics" size="small" severity="secondary" outlined data-testid="export-diagnostics" :disabled="busy" @click="exportDiagnostics" /><Button label="Close" size="small" severity="secondary" outlined @click="testsOpen = false" /></template>
+    </Dialog>
+    <Dialog v-model:visible="deleteOpen" modal header="Delete connection?" :style="{ width: '28rem' }" data-testid="delete-dialog">
+      <p v-if="error" class="error" role="alert">{{ status }}</p>
+      <p>Delete <strong>{{ deleteTarget?.name }}</strong> and its saved password?</p>
+      <p class="hint">Other connections and remembered server certificates stay unchanged.</p>
+      <template #footer><Button label="Cancel" size="small" severity="secondary" outlined data-testid="cancel-delete" @click="deleteOpen = false" /><Button label="Delete connection" size="small" severity="danger" data-testid="confirm-delete" :disabled="busy" @click="removeProfile" /></template>
     </Dialog>
   </div>
 </template>

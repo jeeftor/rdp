@@ -17,6 +17,37 @@ mode 700 and file mode 600. Profile JSON still contains no password, preserving
 compatibility with the terminal app. The terminal app does not use saved GUI
 passwords or GUI certificate settings.
 
+## Guided troubleshooting and deletion
+
+Choose **Troubleshoot** on a saved connection to work through the connection
+in order: server TCP reachability, certificate policy and visible credentials,
+NLA sign-in, then video modes. A reachable TCP port does not prove it is an RDP
+server or that authentication will work. You explicitly review trust and test
+sign-in before opening graphics trials; certificates are never ignored
+without your choice.
+
+A rejected sign-in opens **Review sign-in / trust** with the available server
+reason and diagnostic details. Correct the visible username/password or
+certificate policy and choose **Save and retry**. Cancel saves nothing and
+retries nothing. Unchecking password storage uses the entered password for this
+wizard without replacing the saved password. Generic `LOGON_FAILURE` does not
+identify the exact cause; explicit locked/expired/disabled-account or password
+errors are reported when present in the log. A locked account uses **Save
+connection**, without retrying: unlock it on the server or wait for its policy
+before testing again.
+
+In **Edit**, choose **Delete** and confirm the named connection. This removes
+only that profile and its saved password. Other connections, remembered server
+certificates and existing diagnostic files stay unchanged. Cancel does not
+remove anything.
+
+Use **Export diagnostics** before closing the GUI to save this connection's
+commands, logs, graphics results and available screenshots under
+`~/.local/state/rdpctl/diagnostics` (respecting `XDG_STATE_HOME`). Retention is the
+latest 32 attempts in this GUI process, with the last 1 MiB per desktop attempt
+and 64 KiB per sign-in result. Exports include passwords. For terminal output
+across a complete run, use `rdpctl-gui 2>&1 | tee "$HOME/rdpctl-debug.log"`.
+
 ## Test a connection and handle certificates
 
 **Test sign-in** checks NLA authentication using `+auth-only /sec:nla`, your
@@ -138,8 +169,8 @@ from the application menu after installation. Profiles remain in your home direc
 
 ```bash
 sha256sum --ignore-missing --check SHA256SUMS
-# DNF handles replacement of the older packages and updates an existing install.
-sudo dnf --disablerepo='*' install ./rdp-*.x86_64.rpm
+# Install/update the combined RPM offline, including the same-version reinstall.
+sudo rpm -Uvh --replacepkgs ./rdp-*.x86_64.rpm
 ```
 
 For a locally built installation without root or FUSE, verify `GUI-SHA256SUMS`, extract
@@ -266,7 +297,8 @@ it does not require Node, npm, a CDN, or online resources to run. Sources includ
 vendored frontend modules and their license notices.
 
 CI restores compatible Rust dependencies and stores refreshed build artifacts
-per commit. It runs the frontend checks/build once before the Rust builds.
+per commit. Pinned packaging/test tools are cached, and already-compressed
+artifacts are uploaded without redundant compression. It runs the frontend checks/build once before the Rust builds.
 Packaging uses `pigz` (installed by `scripts/install-build-deps.sh`) to create
 standard gzip-compressed tar archives in parallel; package formats and native
 GUI checks are unchanged.

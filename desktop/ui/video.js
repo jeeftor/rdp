@@ -18,6 +18,7 @@ export function preferredMode(confirmed, availability) {
 
 export function trialLabel(trial) {
   if (trial?.skipped) return 'Not tested';
+  if (isAccountLocked(trial)) return 'Account locked';
   if (trial?.kind === 'credentials') return 'Sign-in failed';
   if (trial?.kind === 'certificate' || trial?.kind === 'certificate_changed') return 'Certificate rejected';
   if (trial?.kind === 'renderer') return 'Graphics failed';
@@ -35,6 +36,7 @@ export function trialLabel(trial) {
 
 export function authenticationLabel(outcome) {
   if (outcome.success) return 'Sign-in accepted';
+  if (isAccountLocked(outcome)) return 'Account locked';
   if (outcome.kind === 'credentials') return 'Sign-in rejected';
   if (['certificate', 'certificate_changed'].includes(outcome.kind)) return 'Certificate rejected';
   if (outcome.kind === 'crash') return 'Client crashed';
@@ -43,6 +45,18 @@ export function authenticationLabel(outcome) {
 }
 
 export function canConfirmTrial(trial, available) {
-  if (!available || !trial || ['credentials', 'renderer', 'crash', 'certificate', 'certificate_changed', 'failed'].includes(trial.kind)) return false;
+  if (!available || !trial || isAccountLocked(trial) || ['credentials', 'renderer', 'crash', 'certificate', 'certificate_changed', 'failed'].includes(trial.kind)) return false;
   return Boolean(trial.desktop_initialized || ['running', 'initialized', 'closed'].includes(trial.kind));
+}
+
+export function wizardCanEnter(step, reachability, trustReviewed, authentication = []) {
+  if (step === 1) return true;
+  if (!reachability?.success) return false;
+  if (step === 2) return true;
+  if (!trustReviewed) return false;
+  return step === 3 || authentication.some(outcome => outcome.success);
+}
+
+export function isAccountLocked(outcome) {
+  return outcome?.kind === 'account_locked' || /ERRCONNECT_ACCOUNT_LOCKED_OUT|account (?:is )?locked|account[^\n]*locked out/i.test(`${outcome?.summary || ''} ${outcome?.details || ''}`);
 }

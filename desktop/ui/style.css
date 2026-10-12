@@ -52,3 +52,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflo
 .testing { color: #5eead4; font-weight: 600; }
 
 .video-table .active-video-test > td { background: #15333c; }
+
+.guide-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.guide-stage { margin: 8px 0 14px; }
+.guide-stage p { margin: 8px 0; }

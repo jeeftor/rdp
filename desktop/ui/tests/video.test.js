@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authenticationLabel, canConfirmTrial, graphicsMode, preferredMode, trialLabel } from '../video.js';
+import { authenticationLabel, canConfirmTrial, isAccountLocked, wizardCanEnter, graphicsMode, preferredMode, trialLabel } from '../video.js';
 
 test('remembered graphics preference preserves higher modes and skips unavailable backends', () => {
   const working = ['x11-software', 'x11-opengles2', 'x11-opengl'];
@@ -39,4 +39,19 @@ test('failed desktop outcomes cannot be confirmed despite earlier initialization
   }
   assert.equal(canConfirmTrial({ kind: 'blank', desktop_initialized: true }, true), true);
   assert.equal(canConfirmTrial({ kind: 'initialized' }, false), false);
+});
+
+test('guided video requires reachable server, reviewed trust and accepted sign-in', () => {
+  assert.equal(wizardCanEnter(2, null, false, []), false);
+  assert.equal(wizardCanEnter(3, { success: true }, false, []), false);
+  assert.equal(wizardCanEnter(4, { success: true }, true, [{ success: false }]), false);
+  assert.equal(wizardCanEnter(4, { success: true }, true, [{ success: true }]), true);
+});
+
+test('locked accounts are distinct from generic sign-in rejection and cannot be confirmed', () => {
+  const locked = { kind: 'credentials', summary: 'The server rejected sign-in.', details: 'ERRCONNECT_ACCOUNT_LOCKED_OUT', desktop_initialized: true };
+  assert.equal(isAccountLocked(locked), true);
+  assert.equal(authenticationLabel(locked), 'Account locked');
+  assert.equal(canConfirmTrial(locked, true), false);
+  assert.equal(isAccountLocked({ kind: 'credentials', summary: 'Reason not specified.' }), false);
 });

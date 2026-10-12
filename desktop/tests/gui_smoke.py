@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import socket
 from pathlib import Path
 from collections.abc import Callable
 import subprocess
@@ -63,6 +64,7 @@ def main() -> None:
             '#!/bin/sh\nif [ "$1" = /list:monitor ]; then\n'
             "printf 'listing 2 monitors:\\n * [1] [screen] 1280x1024 +0+0\\n [3] [second] 1920x1080 +1280+0\\n'; exit 255; fi\n"
             f'if [ "$1" = /args-from:stdin ]; then cat > "{args_path}"; else printf \'%s\\n\' "$@" > "{args_path}"; fi\n'
+            f'case "$(cat "{args_path}")" in *"/p:rejected secret"*) printf \'ERRCONNECT_LOGON_FAILURE\\n\'; exit 134;; *"/p:locked secret"*) printf \'ERRCONNECT_ACCOUNT_LOCKED_OUT\\n\'; exit 135;; esac\n'
             f'case "$(cat "{args_path}")" in *+auth-only*)\n'
             f'case "$(cat "{args_path}")" in */cert:fingerprint:sha256:*) exit 0;;\n'
             "*) printf 'certificate not trusted\\nThe fingerprint for the host key is " + "ab:" * 31 + "ab\\n'; exit 1;; esac;; esac\n"
@@ -226,6 +228,47 @@ def main() -> None:
             screenshot.parent.mkdir(parents=True, exist_ok=True)
             screenshot.write_bytes(base64.b64decode(request('GET', f'/session/{session}/screenshot')))
             close_dialog()
+            # Exercise the guided workflow against a real TCP listener; FreeRDP remains a fixture.
+            with socket.socket() as listener:
+                listener.bind(('127.0.0.1', 0))
+                listener.listen(8)
+                action('new-workstation', 'troubleshoot')
+                wait_for(lambda: javascript("return document.querySelector('[data-testid=wizard-server]')"), 'server stage')
+                assert javascript("return document.querySelector('[data-testid=wizard-step-4]').disabled")
+                click('check-reachability')
+                wait_for(lambda: javascript("return !!document.querySelector('[data-testid=wizard-reachability-result]')"), 'unreachable server result')
+                assert javascript("return document.querySelector('[data-testid=wizard-step-2]').disabled")
+                click('wizard-edit-server')
+                fill('profile-host', f'127.0.0.1:{listener.getsockname()[1]}')
+                fill('profile-password', 'rejected secret')
+                click('save-connection')
+                click('check-reachability')
+                wait_for(lambda: javascript("return !!document.querySelector('[data-testid=wizard-trust]')"), 'trust and credential stage')
+                assert javascript("return document.querySelector('[data-testid=wizard-password]').value === 'rejected secret'")
+                assert javascript("return document.querySelector('[data-testid=wizard-password]').type === 'text'")
+                click('wizard-review-trust')
+                assert javascript("return document.querySelector('[data-testid=test-all]').disabled")
+                click('test-authentication')
+                wait_for(lambda: javascript("return document.querySelector('[data-testid=retry-reason]')?.textContent.includes('exact reason was not supplied')"), 'visible credential retry prompt')
+                assert javascript("return document.querySelector('[data-testid=save-connection]').textContent.includes('Save and retry')")
+                fill('profile-password', 'saved secret')
+                click('save-connection')
+                wait_for(lambda: javascript("return !document.querySelector('[data-testid=wizard-step-4]').disabled"), 'accepted sign-in unlocks video stage')
+                assert password_path.read_text() == 'saved secret'
+                assert not javascript("return document.querySelector('[data-testid=test-all]').disabled")
+                click('test-edit')
+                fill('profile-password', 'locked secret')
+                click('save-connection')
+                click('wizard-review-trust')
+                click('test-authentication')
+                wait_for(lambda: javascript("return document.querySelector('[data-testid=retry-reason]')?.textContent.includes('locked')"), 'account lockout prompt')
+                assert javascript("return document.querySelector('[data-testid=save-connection]').textContent.includes('Save connection')")
+                arguments_before_save = args_path.read_bytes()
+                fill('profile-password', 'saved secret')
+                click('save-connection')
+                wait_for(lambda: password_path.read_text() == 'saved secret', 'corrected password saved without locked-account retry')
+                assert args_path.read_bytes() == arguments_before_save
+                close_dialog()
             saved_before_duplicate = saved_path.read_bytes()
             click('new-connection')
             wait_for(lambda: javascript("return document.querySelector('[data-testid=editor-dialog]')"), 'duplicate new dialog')
@@ -234,7 +277,20 @@ def main() -> None:
             wait_for(lambda: 'existing profile will not be overwritten' in javascript("return document.querySelector('#status').textContent"), 'duplicate refusal')
             assert saved_path.read_bytes() == saved_before_duplicate
             assert (profiles / 'existing.json').read_text() == original
-            print('GUI smoke passed: compact Vue table/dialogs, edit/password, certificate, batch video, capture evidence, preference, export and duplicate protection.')
+            click('cancel-editor')
+            action('new-workstation', 'edit')
+            click('delete-connection')
+            wait_for(lambda: javascript("return document.querySelector('[data-testid=delete-dialog]')?.textContent.includes('Edited workstation')"), 'named deletion confirmation')
+            click('cancel-delete')
+            assert saved_path.read_bytes() == saved_before_duplicate
+            click('delete-connection')
+            click('confirm-delete')
+            wait_for(lambda: not saved_path.exists(), 'selected connection deleted')
+            assert not password_path.exists()
+            assert (profiles / 'existing.json').read_text() == original
+            assert next(remembered.parent.glob('*.pem.previous-*')).read_text() == 'remembered certificate'
+            wait_for(lambda: javascript("return !document.querySelector('[data-profile-id=new-workstation]')"), 'deleted row removed')
+            print('GUI smoke passed: compact Vue table/dialogs, edit/password, certificate, batch video, capture evidence, preference, export, wizard, credential retry, lockout, deletion and duplicate protection.')
         except Exception:
             if session:
                 try:

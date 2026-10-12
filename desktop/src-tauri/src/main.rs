@@ -47,6 +47,11 @@ fn update_profile(profile: Profile) -> Result<Profile, String> {
 }
 
 #[tauri::command]
+fn delete_profile(id: String) -> Result<(), String> {
+    Store::from_environment()?.delete(&id)
+}
+
+#[tauri::command]
 fn saved_password(id: String) -> Result<Option<String>, String> {
     Store::from_environment()?.password(&id)
 }
@@ -64,6 +69,25 @@ fn forget_password(id: String) -> Result<(), String> {
 #[tauri::command]
 fn forget_certificate(id: String) -> Result<bool, String> {
     Store::from_environment()?.forget_certificate(&id)
+}
+
+#[tauri::command]
+async fn test_reachability(
+    id: String,
+    history: tauri::State<'_, DiagnosticHistory>,
+) -> Result<rdpctl_core::ReachabilityResult, String> {
+    let profile = Store::from_environment()?.load(&id)?;
+    let result =
+        tauri::async_runtime::spawn_blocking(move || rdpctl_core::test_server(&profile.host))
+            .await
+            .map_err(|error| error.to_string())??;
+    history.start(
+        &id,
+        "server reachability",
+        String::new(),
+        format!("{}\n{}", result.summary, result.details),
+    );
+    Ok(result)
 }
 
 #[tauri::command]
@@ -321,6 +345,8 @@ fn main() {
             list_profiles,
             create_profile,
             update_profile,
+            delete_profile,
+            test_reachability,
             saved_password,
             save_password,
             forget_password,

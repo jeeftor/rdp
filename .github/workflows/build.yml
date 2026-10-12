@@ -23,7 +23,20 @@ jobs:
         run: bash scripts/install-build-deps.sh
       - name: Check code and launchers
         run: make check
+      - name: Locate packager binary
+        id: packager-bin
+        run: |
+          packager_bin="$(go env GOBIN)"
+          if [[ -z "$packager_bin" ]]; then packager_bin="$(go env GOPATH)/bin"; fi
+          echo "path=$packager_bin/nfpm" >> "$GITHUB_OUTPUT"
+          echo "$packager_bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: packager-cache
+        with:
+          path: ${{ steps.packager-bin.outputs.path }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ubuntu24-nfpm-2.47.0
       - name: Install pinned packager
+        if: steps.packager-cache.outputs.cache-hit != 'true'
         env:
           GOTOOLCHAIN: auto
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
@@ -66,6 +79,7 @@ jobs:
         with:
           name: freerdp-linux-x86_64
           if-no-files-found: error
+          compression-level: 0
           path: |
             output/*.tar.gz
             output/*.deb

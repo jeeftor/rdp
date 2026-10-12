@@ -220,19 +220,8 @@ fn classify(success: bool, timed_out: bool, details: String) -> TestResult {
             "runtime",
             "Authentication is blocked by a missing OpenSSL legacy provider.",
         )
-    } else if [
-        "logon_failure",
-        "authentication_failed",
-        "wrong_password",
-        "access_denied",
-        "account_locked",
-        "password_expired",
-        "logon_denied",
-    ]
-    .iter()
-    .any(|value| lower.contains(value))
-    {
-        ("credentials", "The server rejected authentication. Check the username/domain, password and account permissions. Details may identify a locked or expired account.")
+    } else if let Some(summary) = authentication_rejection(&lower) {
+        ("credentials", summary)
     } else if [
         "dns_name_not_found",
         "connect_failed",
@@ -275,7 +264,36 @@ fn classify(success: bool, timed_out: bool, details: String) -> TestResult {
     }
 }
 
+/// Describe only the rejection reason explicitly reported by the server log.
+pub(crate) fn authentication_rejection(details: &str) -> Option<&'static str> {
+    let lower = details.to_ascii_lowercase();
+    [
+        ("no_such_user", "Server reports an unknown username (NO_SUCH_USER). Check your username and domain."),
+        ("wrong_password", "Server reports an incorrect password (WRONG_PASSWORD). Enter your password again."),
+        ("account_locked", "Server reports a locked account (ACCOUNT_LOCKED). Your administrator must unlock it."),
+        ("password_must_change", "Server requires a password change (PASSWORD_MUST_CHANGE)."),
+        ("password_expired", "Server reports an expired password (PASSWORD_EXPIRED)."),
+        ("account_expired", "Server reports an expired account (ACCOUNT_EXPIRED)."),
+        ("account_disabled", "Server reports a disabled account (ACCOUNT_DISABLED)."),
+        ("logon_type_not_granted", "Server denied this logon type (LOGON_TYPE_NOT_GRANTED). Check your remote logon permissions."),
+        ("insufficient_privileges", "Server reports insufficient privileges (INSUFFICIENT_PRIVILEGES). Check your remote logon permissions."),
+        ("account_restriction", "Server reports an account restriction (ACCOUNT_RESTRICTION). Review the server details."),
+        ("access_denied", "Server denied access (ACCESS_DENIED). Review your account permissions and the server details."),
+        ("logon_denied", "Server denied logon (LOGON_DENIED). Review the server details."),
+        ("logon_failure", "Server rejected sign-in (LOGON_FAILURE); the exact reason was not supplied. Check your username, domain and password."),
+        ("authentication_failed", "Server rejected authentication (AUTHENTICATION_FAILED); the exact reason was not supplied."),
+    ].into_iter().find_map(|(code, summary)| lower.contains(code).then_some(summary))
+}
+
 pub(crate) fn certificate_filename(authority: &str) -> Result<String, String> {
+    let (host, port) = authority_host_port(authority)?;
+    Ok(format!(
+        "{}_{port}.pem",
+        host.to_ascii_lowercase().replace(':', ".")
+    ))
+}
+
+pub(crate) fn authority_host_port(authority: &str) -> Result<(&str, u16), String> {
     let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
         let (host, suffix) = rest.split_once(']').ok_or("Invalid bracketed IPv6 host.")?;
         host.parse::<std::net::Ipv6Addr>()
@@ -306,14 +324,9 @@ pub(crate) fn certificate_filename(authority: &str) -> Result<String, String> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || b".-_:".contains(&byte))
     {
-        return Err(
-            "Use a hostname, IP address, or host:port to manage its saved certificate.".into(),
-        );
+        return Err("Use a hostname, IP address, or host:port.".into());
     }
-    Ok(format!(
-        "{}_{port}.pem",
-        host.to_ascii_lowercase().replace(':', ".")
-    ))
+    Ok((host, port))
 }
 
 #[cfg(test)]
@@ -321,6 +334,36 @@ mod tests {
     use super::*;
     use crate::CertificatePolicy;
     use std::fs;
+
+    #[test]
+    fn reports_specific_server_rejections_before_unspecified_logon_failure() {
+        for (code, phrase) in [
+            ("STATUS_WRONG_PASSWORD", "incorrect password"),
+            ("STATUS_NO_SUCH_USER", "unknown username"),
+            ("ERRCONNECT_ACCOUNT_LOCKED_OUT", "locked account"),
+            ("STATUS_PASSWORD_EXPIRED", "expired password"),
+            ("STATUS_ACCOUNT_DISABLED", "disabled account"),
+            ("STATUS_ACCOUNT_EXPIRED", "expired account"),
+            ("STATUS_LOGON_TYPE_NOT_GRANTED", "logon type"),
+            ("STATUS_ACCESS_DENIED", "denied access"),
+            (
+                "ERRCONNECT_INSUFFICIENT_PRIVILEGES",
+                "insufficient privileges",
+            ),
+        ] {
+            let log = format!("ERRCONNECT_LOGON_FAILURE\n{code}");
+            let result = classify(false, false, log.clone());
+            assert_eq!(result.kind, "credentials");
+            assert!(result.summary.contains(phrase));
+            assert_eq!(crate::session_outcome(false, &log).summary, result.summary);
+        }
+        let unspecified = classify(false, false, "ERRCONNECT_LOGON_FAILURE".into());
+        assert!(unspecified
+            .summary
+            .contains("exact reason was not supplied"));
+        assert!(!unspecified.summary.contains("incorrect password"));
+        assert!(authentication_rejection("Local framebuffer format BGRA32").is_none());
+    }
 
     #[test]
     fn distinguishes_certificate_and_password_failures() {

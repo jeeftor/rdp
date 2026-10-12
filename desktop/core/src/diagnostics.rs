@@ -94,13 +94,8 @@ pub fn session_outcome(success: bool, details: &str) -> SessionOutcome {
             "renderer",
             "Renderer failed. Try another available video mode; see the graphics details.",
         )
-    } else if lower.contains("errconnect_logon_failure")
-        || lower.contains("errconnect_authentication_failed")
-    {
-        (
-            "credentials",
-            "Server rejected sign-in. Review authentication details.",
-        )
+    } else if let Some(summary) = crate::connection::authentication_rejection(&lower) {
+        ("credentials", summary)
     } else if lower.contains("certificate not trusted")
         || lower.contains("remote host identification has changed")
     {

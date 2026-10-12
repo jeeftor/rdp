@@ -13,11 +13,13 @@ static PROCESS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 mod connection;
 mod diagnostics;
+mod reachability;
 mod video_tests;
 pub use connection::{test_connection, test_connection_argv, TestResult};
 pub use diagnostics::{
     session_outcome, video_availability, DiagnosticHistory, SessionOutcome, VideoAvailability,
 };
+pub use reachability::{test_server, ReachabilityResult};
 pub use video_tests::{run_video_tests, VideoTestBatch, VideoTrial};
 
 /// How FreeRDP checks a server certificate for this connection.
@@ -283,6 +285,14 @@ impl Store {
             .persist(self.directory.join(format!("{}.json", profile.id)))
             .map_err(|error| format!("Cannot update connection: {error}"))?;
         Ok(profile)
+    }
+
+    /// Delete only this validated connection and its saved password, preserving certificates and logs.
+    pub fn delete(&self, id: &str) -> Result<(), String> {
+        self.load(id)?;
+        self.forget_password(id)?;
+        fs::remove_file(self.directory.join(format!("{id}.json")))
+            .map_err(|error| format!("Cannot delete connection: {error}"))
     }
 
     fn password_path(&self, id: &str) -> Result<PathBuf, String> {
@@ -656,6 +666,38 @@ mod tests {
             vec![1, 3]
         );
         assert!(parse_monitors("[ERROR] cannot open display").is_err());
+    }
+
+    #[test]
+    fn deleting_one_connection_preserves_other_profiles_certificates_and_logs() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::new(directory.path().join("connections"));
+        let mut selected = profile();
+        selected.id = "selected".into();
+        let mut other = selected.clone();
+        other.id = "other".into();
+        store.create(selected).unwrap();
+        store.create(other).unwrap();
+        store
+            .save_password("selected", "selected password")
+            .unwrap();
+        store.save_password("other", "other password").unwrap();
+        let preserved = directory.path().join("certificates-and-logs");
+        fs::write(&preserved, "unrelated certificate and diagnostic evidence").unwrap();
+        assert!(store.delete("../other").is_err());
+        store.delete("selected").unwrap();
+        assert!(!store.directory.join("selected.json").exists());
+        assert!(!store.directory.join("passwords/selected").exists());
+        assert_eq!(store.list().unwrap()[0].id, "other");
+        assert_eq!(
+            store.password("other").unwrap().as_deref(),
+            Some("other password")
+        );
+        assert!(preserved.exists());
+        assert!(store.delete("selected").is_err());
+        store.forget_password("other").unwrap();
+        store.delete("other").unwrap();
+        assert!(store.list().unwrap().is_empty());
     }
 
     #[test]

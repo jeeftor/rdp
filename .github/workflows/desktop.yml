@@ -26,6 +26,18 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Locate packager binary
+        id: packager-bin
+        run: |
+          packager_bin="$(go env GOBIN)"
+          if [[ -z "$packager_bin" ]]; then packager_bin="$(go env GOPATH)/bin"; fi
+          echo "path=$packager_bin/nfpm" >> "$GITHUB_OUTPUT"
+          echo "$packager_bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: packager-cache
+        with:
+          path: ${{ steps.packager-bin.outputs.path }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ubuntu24-nfpm-2.47.0
       - name: Install desktop build and test dependencies
         run: |
           bash scripts/install-build-deps.sh
@@ -64,12 +76,24 @@ jobs:
           cargo test --manifest-path desktop/Cargo.toml -p rdpctl-gui --release --locked
           mkdir -p output
           cp desktop/target/release/rdpctl-gui output/rdpctl-gui
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: gui-tools-cache
+        with:
+          path: |
+            ~/.cargo/bin/tauri-driver
+            ~/.cargo/bin/cargo-tauri
+          key: ${{ runner.os }}-${{ runner.arch }}-ubuntu24-rust-1.98.1-tauri-driver-2.0.5-cli-2.12.1
       - name: Install GUI test driver
+        if: steps.gui-tools-cache.outputs.cache-hit != 'true'
         run: |
           cargo install tauri-driver --version 2.0.5 --locked
           curl --fail --location --retry 2 https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v2.12.1/cargo-tauri-x86_64-unknown-linux-gnu.tgz --output .build/tauri-cli.tgz
           echo '04ef3a9a2ed7b7dc479bef08ab40deee80065c99fc778f79ebce775eb72bbeff  .build/tauri-cli.tgz' | sha256sum --check
           tar -xzf .build/tauri-cli.tgz -C "$HOME/.cargo/bin" cargo-tauri
+          cargo tauri --version
+      - name: Check cached GUI tools
+        run: |
+          tauri-driver --help
           cargo tauri --version
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: steps.rust-cache.outputs.cache-hit != 'true'
@@ -92,7 +116,10 @@ jobs:
             [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || exit 2
             export PACKAGE_VERSION="${RELEASE_TAG#v}"
           fi
-          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+          if [[ '${{ steps.packager-cache.outputs.cache-hit }}' != true ]]; then
+            go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+          fi
+          nfpm --version
           make gui-package
           make gui-portable-package
           bash desktop/tests/portable.sh
@@ -103,6 +130,7 @@ jobs:
         with:
           name: rdpctl-desktop-linux-x86_64
           if-no-files-found: warn
+          compression-level: 0
           path: |
             output/rdpctl-gui*
             output/rdpctl-portable*
