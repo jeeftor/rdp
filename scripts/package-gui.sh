@@ -11,6 +11,8 @@ sed 's|directory = ".build/gui-sources/vendor"|directory = "vendor"|' .build/gui
 cp -R desktop/core desktop/src-tauri desktop/ui desktop/patches .build/gui-sources/
 rm -rf .build/gui-sources/src-tauri/gen
 cp desktop/Cargo.toml desktop/Cargo.lock desktop/rust-toolchain.toml desktop/README.md LICENSE .build/gui-sources/
+mkdir -p .build/gui-sources/recipes
+cp scripts/capture-window.c scripts/render-probe.c scripts/build-freerdp.sh scripts/install-build-deps.sh .build/gui-sources/recipes/
 while IFS= read -r -d '' file; do
   relative="${file#.build/gui-sources/vendor/}"
   mkdir -p "$GUI_LICENSES/$(dirname "$relative")"

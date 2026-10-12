@@ -39,6 +39,8 @@ jobs:
             ~/.cargo/registry
             desktop/target
           key: ${{ runner.os }}-rdpctl-rust-1.98.1-${{ hashFiles('desktop/Cargo.lock', 'desktop/patches/**') }}
+          restore-keys: |
+            ${{ runner.os }}-rdpctl-rust-1.98.1-
       - name: Fetch matching client artifact for tagged releases
         if: github.ref_type == 'tag'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
