@@ -18,6 +18,12 @@ while IFS= read -r -d '' file; do
 done < <(find .build/gui-sources/vendor -type f \( -iname '*license*' -o -iname '*copying*' -o -iname '*notice*' -o -iname '*copyright*' -o -name Cargo.toml \) -print0)
 mkdir -p "$GUI_LICENSES/glib-0.18.5-patched"
 cp desktop/patches/glib/LICENSE desktop/patches/glib/COPYRIGHT desktop/patches/README.md "$GUI_LICENSES/glib-0.18.5-patched/"
+# Preserve licenses for frontend modules embedded in the native GUI.
+while IFS= read -r -d '' file; do
+  relative="${file#desktop/ui/node_modules/}"
+  mkdir -p "$GUI_LICENSES/frontend/$(dirname "$relative")"
+  cp "$file" "$GUI_LICENSES/frontend/$relative"
+done < <(find desktop/ui/node_modules -type f \( -iname '*license*' -o -iname '*copying*' -o -iname '*notice*' -o -iname '*copyright*' -o -name package.json \) -print0)
 # envsubst needs literal variable names, rather than their values.
 # shellcheck disable=SC2016
 envsubst '${PACKAGE_VERSION} ${GUI_BINARY} ${GUI_LICENSES}' < packaging/gui-nfpm.yaml > .build/gui-nfpm.yaml

@@ -17,5 +17,5 @@ sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::http
   libwayland-dev wayland-protocols libxkbcommon-dev libxkbcommon-x11-dev \
   libegl-dev libgl-dev libgles-dev libdbus-1-dev \
   libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
-  libxi-dev libxss-dev libxtst-dev libxrender-dev \
+  libxi-dev libxss-dev libxtst-dev libxrender-dev libxcomposite-dev libpng-dev \
   shellcheck xvfb xauth weston

@@ -11,3 +11,5 @@ rdp-diagnostics-logs/
 .DS_Store
 desktop/target/
 desktop/src-tauri/gen/
+desktop/ui/node_modules/
+desktop/ui/dist/

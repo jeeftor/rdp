@@ -13,10 +13,12 @@ static PROCESS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 mod connection;
 mod diagnostics;
+mod video_tests;
 pub use connection::{test_connection, test_connection_argv, TestResult};
 pub use diagnostics::{
     session_outcome, video_availability, DiagnosticHistory, SessionOutcome, VideoAvailability,
 };
+pub use video_tests::{run_video_tests, VideoTestBatch, VideoTrial};
 
 /// How FreeRDP checks a server certificate for this connection.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -442,6 +444,19 @@ pub fn launch(
     password: Option<&str>,
     video_test: Option<VideoMode>,
 ) -> Result<(Child, String, String), String> {
+    let (mut command, arguments, graphics) = desktop_command(profile, client, video_test)?;
+    command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let (child, copyable) = connection::spawn(&mut command, arguments, password)?;
+    Ok((child, copyable, graphics))
+}
+
+fn desktop_command(
+    profile: Profile,
+    client: &Path,
+    video_test: Option<VideoMode>,
+) -> Result<(Command, Vec<String>, String), String> {
     let mut profile = profile.validate()?;
     if let Some(mode) = video_test {
         profile.video_mode = mode;
@@ -451,15 +466,13 @@ pub fn launch(
     }
     let mut command = Command::new(client);
     let graphics = configure_rendering(&mut command, client, profile.video_mode)?;
-    command
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
     let mut arguments = profile.arguments();
     if video_test.is_some() {
-        arguments.extend(["/size:1280x720", "/bpp:32", "/sec:nla"].map(str::to_owned));
+        arguments.extend(
+            ["/size:1280x720", "/bpp:32", "/sec:nla", "/log-level:INFO"].map(str::to_owned),
+        );
     }
-    let (child, copyable) = connection::spawn(&mut command, arguments, password)?;
-    Ok((child, copyable, graphics))
+    Ok((command, arguments, graphics))
 }
 
 /// Accept a SHA-256 fingerprint in compact or colon-separated form.

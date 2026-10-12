@@ -2,9 +2,9 @@
 
 The Rust/Tauri desktop app is the graphical connection manager for the Linux
 FreeRDP bundle. Save a host and username, select your displays, and click
-**Connect**. FreeRDP opens its own native window. Under **Edit connection**, enter a password and optionally save it in plaintext on this machine.
+**Connect**. FreeRDP opens its own native window. Under **Edit**, enter a password and optionally save it in plaintext on this machine.
 Leave the field empty to use your saved password; without one, FreeRDP prompts
-when connecting. **Forget saved password** removes only that connection's password.
+when connecting. **Forget password** removes only that connection's password.
 
 Profiles use the existing `~/.config/rdpctl/connections/*.json` format, respecting
 `XDG_CONFIG_HOME`. The GUI lists existing profiles and creates new ones with
@@ -19,7 +19,7 @@ passwords or GUI certificate settings.
 
 ## Test a connection and handle certificates
 
-**Test connection** checks NLA authentication using `+auth-only /sec:nla`, your
+**Test sign-in** checks NLA authentication using `+auth-only /sec:nla`, your
 current certificate setting and entered/saved password. It does not open a
 remote desktop. The test has a 20-second deadline and distinguishes network,
 certificate, changed-certificate, credential, and crypto-runtime failures. A
@@ -36,15 +36,15 @@ Choose a policy for each connection:
 - **Ignore certificate checks**: accept any certificate for this connection.
 
 If a remembered certificate needs replacing, **Back up remembered certificate**
-followed by **Confirm certificate backup** moves only the selected host/port's
+followed by **Confirm backup** moves only the selected host/port's
 `freerdp/server/HOST_PORT.pem` to a timestamped `.pem.previous-*` backup. It
 does not automatically trust the new certificate or change your policy.
 
 Every launch and test prints a shell-quoted, copyable FreeRDP command to standard
 error and the GUI connection log, including the password. The GUI also streams
 FreeRDP stdout/stderr into that log; **Copy command** copies the full shell-quoted
-command, including environment overrides for software rendering. Test commands
-are labeled **Authentication test command (no desktop)**; `+auth-only` checks
+command, including environment overrides for software rendering. Sign-in commands
+appear under **Details / command**; `+auth-only` checks
 credentials and exits, while desktop commands are shown after **Connect**. The actual launch passes arguments through
 standard input when using a password. To keep terminal output locally:
 
@@ -74,7 +74,8 @@ reported log.
 
 Install Rust 1.98.1 through your usual development setup. On Ubuntu 24.04, install
 `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf build-essential pkg-config`.
-The lockfile pins all Rust dependencies; no Node.js toolchain is required.
+The lockfiles pin Rust and frontend dependencies. Building the interface requires
+Node 20 or newer; the installed RPM does not need Node or npm.
 The workspace includes an upstream GLib security fix backported for Tauri's
 GTK3 dependencies; see [patches/README.md](patches/README.md). Weekly Dependabot
 checks cover Rust, Go and GitHub Actions.
@@ -109,12 +110,12 @@ unavailable. Explicit SDL backend overrides are respected. Authentication tests
 and version/help commands do not require the graphics probe.
 
 There is no automatic fallback to SDL software rendering. Existing monitor IDs
-can differ after a backend change; use **Detect displays for this connection**
+can differ after a backend change; use **Detect displays**
 to select current IDs. Bundles installed before this feature keep their existing
 behavior until updated.
 
 If GPU renderer creation fails and you see `Window framebuffer support not
-available`, choose **X11 · Software fallback** under **Graphics mode** in **Edit connection**. It uses
+available`, choose **X11 · Software fallback** under **Graphics mode** in **Edit**. It uses
 `SDL_VIDEODRIVER=x11 SDL_RENDER_DRIVER=software SDL_FRAMEBUFFER_ACCELERATION=0`,
 requires a working `DISPLAY` (Xorg or XWayland), and applies to that connection.
 On Wayland without XWayland, repair the host EGL/graphics driver setup instead.
@@ -199,14 +200,14 @@ and diagnostic output.
 
 ## Confirm and remember desktop video modes
 
-Use **Test video options** on a saved connection to try X11 or Wayland with
-OpenGL/OpenGL ES, or X11 software rendering. **Try desktop** opens a real
+Use **Test** on a saved connection to try X11 or Wayland with
+OpenGL/OpenGL ES, or X11 software rendering. **Open desktop** opens a real
 1280×720 NLA desktop using your credentials and certificate policy. Saved monitor
 IDs, fullscreen and multi-monitor settings are omitted only for the trial.
 Close its desktop before starting the next trial. Full commands and output are
 available in the connection log.
 
-Mark **Works — remember best** only when you saw a usable desktop. The GUI saves
+Mark **I saw the desktop** only when you saw a usable desktop. The GUI saves
 confirmed modes in the JSON profile and selects the first confirmed mode in this
 order: X11 OpenGL, Wayland OpenGL, X11 OpenGL ES, Wayland OpenGL ES, X11 software.
 Confirmations survive restarting the GUI. This is a preference order, not a GPU
@@ -216,29 +217,50 @@ detection use the saved choice. **Graphics mode** also lets you select a mode
 manually or return to automatic detection. Existing software-override profiles
 remain readable. Renderer trials do not change your certificate policy.
 
-### Trial results and diagnostic exports
 
-Video choices without `DISPLAY` (X11) or `WAYLAND_DISPLAY` (Wayland) are disabled
-with an explanation. Remember best chooses among currently available confirmed
-modes; previously confirmed unavailable modes remain in history. A present endpoint does not guarantee that its driver works.
-The bundled SDL frame probe checks your selected mode before launching and reports
-the OpenGL renderer/device in the GUI. Known CPU drivers such as llvmpipe are
-identified explicitly; missing device information is reported as unknown.
+### Compact interface and one-click testing
 
-Each video trial shows its process exit code and distinguishes renderer,
-authentication, certificate and general failures from desktop initialization.
-Initialization and an exit code do not prove that you saw a usable desktop:
-you still confirm **Works — remember best** yourself.
+The interface uses Vue and PrimeVue controls. Your saved connections appear in a
+compact table with **Connect**, **Edit**, and **Test** actions. New and Edit open
+modal forms; passwords remain visible. Test opens five short result rows with
+expandable details, full commands, and logs.
 
-**Compare CLI authentication** makes two sequential NLA attempts using the same
-profile and password: stdin arguments (the normal GUI path) and direct CLI
-arguments. It retains both commands, outputs and actual process exit codes.
-If FreeRDP reports authentication success but exits unsuccessfully, the GUI
-reports that discrepancy rather than silently declaring success.
+**Test all video modes** authenticates once, then opens each available real RDP
+desktop sequentially for up to 15 seconds. The active mode is highlighted. Trials
+use NLA, your saved password/certificate policy, and a simple 1280×720 window
+without saved monitor IDs. Rejected sign-in stops further connection attempts.
+**Test sign-in** checks credentials only and does not prove rendering.
 
-**Export diagnostics** writes a private JSON file under
-`${XDG_STATE_HOME:-~/.local/state}/rdpctl/diagnostics/` and displays its path.
-It includes your profile, relevant display/SDL/OpenSSL environment, exact commands
-including passwords, GPU probe results, logs and exit status. It retains the
-latest 32 attempts in this GUI process, each with its last 1 MiB of output;
-authentication output retains its last 64 KiB. Export before closing the GUI.
+X11 trials capture only the launched FreeRDP process's client window after five
+seconds, retrying at ten seconds if needed. The bundled capture helper uses an
+XComposite backing pixmap when available, with a mapped-window fallback. It
+saves private PNGs and reports **Image has content**, **Blank image**, or
+**Not captured** with pixel metrics. A nearly black or uniform image is a
+warning, not proof of bad credentials. Window captures do not prove that your
+physical monitor compositor or keyboard input works. Native Wayland capture is
+unavailable through this X11 helper; you can still view and confirm the desktop.
+
+**I saw the desktop** is your explicit confirmation of a usable picture. The
+app never automatically treats authentication, API frame presentation,
+framebuffer initialization, or nonblack pixels as visual success. Confirmed
+available OpenGL modes are preferred to OpenGL ES, then software. Monitor IDs
+are cleared when remembering a choice so you can detect them for its backend.
+
+**Compare CLI sign-in** compares stdin arguments with direct CLI arguments using
+the same profile and password. The actual exit codes and outputs remain visible.
+FreeRDP SDL exit 134 means logon failure; signal termination is recorded
+separately from an ordinary numeric exit code.
+
+**Export diagnostics** writes private JSON to
+`${XDG_STATE_HOME:-~/.local/state}/rdpctl/diagnostics/`. It includes your profile,
+relevant environment, full commands and passwords, logs, process results,
+screenshot evidence, and a batch identifier. The latest 32 attempts are retained
+in the GUI process, with the last 1 MiB per desktop attempt and 64 KiB per
+sign-in attempt. Export before closing the app.
+
+The frontend is built from locked dependencies with `npm ci --prefix desktop/ui`
+and `npm run build --prefix desktop/ui` (Node 20 or newer on the build machine).
+`make gui-check` and `make gui-build` build the frontend before Rust embeds it.
+The installed RHEL RPM contains the compiled interface and capture helper;
+it does not require Node, npm, a CDN, or online resources to run. Sources include
+vendored frontend modules and their license notices.

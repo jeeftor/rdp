@@ -99,7 +99,7 @@ pub fn session_outcome(success: bool, details: &str) -> SessionOutcome {
     {
         (
             "credentials",
-            "Authentication failed. Check your username/domain, password and account permissions.",
+            "Server rejected sign-in. Review authentication details.",
         )
     } else if lower.contains("certificate not trusted")
         || lower.contains("remote host identification has changed")
@@ -113,7 +113,7 @@ pub fn session_outcome(success: bool, details: &str) -> SessionOutcome {
     {
         (
             "initialized",
-            "Desktop session initialized. Mark Works only if you saw a usable desktop.",
+            "Session initialized. Confirm you saw a usable desktop.",
         )
     } else if success {
         ("closed", "Process closed successfully; no desktop initialization was captured. Confirm visually before marking Works.")
@@ -164,6 +164,11 @@ pub struct DiagnosticAttempt {
     pub exit_code: Option<i32>,
     pub outcome: Option<SessionOutcome>,
     pub authentication: Option<TestResult>,
+    pub screenshot: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_mode: Option<VideoMode>,
 }
 
 /// Retain the latest 32 attempts in memory, each with at most 1 MiB of output.
@@ -191,6 +196,9 @@ impl DiagnosticHistory {
             exit_code: None,
             outcome: None,
             authentication: None,
+            screenshot: None,
+            batch_id: None,
+            video_mode: None,
         });
         stamp
     }
@@ -230,8 +238,48 @@ impl DiagnosticHistory {
         }
         outcome
     }
+    /// Retain private screenshot metadata alongside a captured desktop attempt.
+    pub(crate) fn screenshot(&self, stamp: u128, evidence: serde_json::Value) {
+        if let Some(record) = self
+            .0
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .find(|record| record.started_ns == stamp)
+        {
+            record.screenshot = Some(evidence);
+        }
+    }
+
+    /// Keep the exported outcome consistent with deadline and screenshot evidence.
+    pub(crate) fn video_outcome(&self, stamp: u128, outcome: SessionOutcome) {
+        if let Some(record) = self
+            .0
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .find(|record| record.started_ns == stamp)
+        {
+            record.outcome = Some(outcome);
+        }
+    }
+
+    /// Associate only batch-test attempts with their run and explicit renderer.
+    pub(crate) fn batch(&self, stamp: u128, id: &str, mode: Option<VideoMode>) {
+        if let Some(record) = self
+            .0
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .find(|record| record.started_ns == stamp)
+        {
+            record.batch_id = Some(id.into());
+            record.video_mode = mode;
+        }
+    }
+
     /// Store an authentication result with its actual transport and exit status.
-    pub fn authentication(&self, id: &str, result: &TestResult) {
+    pub fn authentication(&self, id: &str, result: &TestResult) -> u128 {
         let stamp = self.start(
             id,
             &format!("authentication ({})", result.transport),
@@ -248,6 +296,7 @@ impl DiagnosticHistory {
             record.exit_code = result.exit_code;
             record.authentication = Some(result.clone());
         }
+        stamp
     }
     /// Export only the requested connection to a new private JSON file in your state directory.
     pub fn export(&self, profile: &Profile) -> Result<PathBuf, String> {

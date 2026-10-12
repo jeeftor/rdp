@@ -161,3 +161,8 @@ redistributed wholesale.
 The desktop GUI can confirm and remember a working graphics mode using **Test
 video options**. See [desktop video trials](desktop/README.md#confirm-and-remember-desktop-video-modes)
 for the preference order and monitor detection workflow.
+
+The desktop interface uses a compact Vue/PrimeVue connections table and modal
+Edit/Test dialogs. **Test all video modes** opens real desktops sequentially and
+captures X11 window evidence; you explicitly confirm a usable picture. See
+[the desktop guide](desktop/README.md) for capture limits and diagnostics.

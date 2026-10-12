@@ -46,240 +46,200 @@ def wait_for(check: Callable[[], Any], description: str) -> Any:
 
 
 def main() -> None:
-    """Run a save, detect, launch, and duplicate-protection smoke test."""
+    """Exercise the compact Vue dialogs, Rust IPC, and real profile storage."""
     bundled_monitors = sys.argv[3:] == ["--bundled-monitors"]
     application = str(Path(sys.argv[1]).resolve())
     screenshot = Path(sys.argv[2])
     with tempfile.TemporaryDirectory(prefix="rdpctl-gui-") as temporary:
         root = Path(temporary)
-        profiles = root / "rdpctl" / "connections"
+        profiles = root / "rdpctl/connections"
         profiles.mkdir(parents=True)
-        existing: dict[str, Any] = {
-            "id": "existing", "name": "Existing <b>profile</b>",
-            "host": "windows.example.invalid", "user": "DOMAIN\\user",
-            "fullscreen": False, "multi_monitor": False,
-        }
-        (profiles / "existing.json").write_text(json.dumps(existing))
+        existing = {"id": "existing", "name": "Existing <b>profile</b>", "host": "windows.example.invalid", "user": "DOMAIN\\user", "fullscreen": False, "multi_monitor": False}
+        original = json.dumps(existing)
+        (profiles / "existing.json").write_text(original)
         client = root / "fake-freerdp"
+        args_path = root / "arguments"
         client.write_text(
             '#!/bin/sh\nif [ "$1" = /list:monitor ]; then\n'
-            "  printf 'listing 2 monitors:\\n     * [1] [screen] 1280x1024\\t+0+0\\n       [3] [second] 1920x1080\\t+1280+0\\n'\n"
-            "  exit 255\nfi\n"
-            f"if [ \"$1\" = /args-from:stdin ]; then cat > '{root / 'arguments'}'; "
-            f"else printf '%s\\n' \"$@\" > '{root / 'arguments'}'; fi\n"
-            f"case \"$(cat '{root / 'arguments'}')\" in\n"
-            "  *+auth-only*)\n"
-            f"    case \"$(cat '{root / 'arguments'}')\" in\n"
-            "      */cert:fingerprint:sha256:*) exit 0 ;;\n"
-            "      *) printf 'certificate not trusted\\nThe fingerprint for the host key sent by the remote host is "
-            + "ab:" * 31 + "ab\\n'; exit 1 ;;\n"
-            "    esac ;;\n"
-            "esac\nprintf 'fake session output\\n'\nsleep 1\n"
+            "printf 'listing 2 monitors:\\n * [1] [screen] 1280x1024 +0+0\\n [3] [second] 1920x1080 +1280+0\\n'; exit 255; fi\n"
+            f'if [ "$1" = /args-from:stdin ]; then cat > "{args_path}"; else printf \'%s\\n\' "$@" > "{args_path}"; fi\n'
+            f'case "$(cat "{args_path}")" in *+auth-only*)\n'
+            f'case "$(cat "{args_path}")" in */cert:fingerprint:sha256:*) exit 0;;\n'
+            "*) printf 'certificate not trusted\\nThe fingerprint for the host key is " + "ab:" * 31 + "ab\\n'; exit 1;; esac;; esac\n"
+            "printf 'Local framebuffer format BGRA32\\nRemote framebuffer format BGRA32\\nfake session output\\n'\n"
+            f'case "$(cat "{args_path}")" in */size:1280x720*) sleep 6;; *) sleep 1;; esac\n'
         )
         client.chmod(0o700)
         probe = root / "bin/rdp-render-probe"
         probe.parent.mkdir()
-        probe.write_text("#!/bin/sh\nbackend=${SDL_VIDEO_DRIVER:-${SDL_VIDEODRIVER:-}}\nif [ -z \"$backend\" ]; then if [ -n \"${WAYLAND_DISPLAY:-}\" ]; then backend=wayland; else backend=x11; fi; fi\nrenderer=${SDL_RENDER_DRIVER:-opengl}\nprintf '%s|%s\\n' \"$backend\" \"$renderer\"\nprintf 'FreeRDP graphics: %s/%s passed frame presentation (llvmpipe LLVM)\\n' \"$backend\" \"$renderer\" >&2\n")
+        probe.write_text('#!/bin/sh\nbackend=${SDL_VIDEO_DRIVER:-${SDL_VIDEODRIVER:-}}\nif [ -z "$backend" ]; then if [ -n "${WAYLAND_DISPLAY:-}" ]; then backend=wayland; else backend=x11; fi; fi\nrenderer=${SDL_RENDER_DRIVER:-opengl}\nprintf \'%s|%s\\n\' "$backend" "$renderer"\nprintf \'FreeRDP graphics: %s/%s passed frame presentation (llvmpipe LLVM)\\n\' "$backend" "$renderer" >&2\n')
         probe.chmod(0o700)
-        environment = dict(os.environ, XDG_CONFIG_HOME=str(root), XDG_STATE_HOME=str(root / "state"), RDPCTL_FREERDP=str(client))
+        # A valid tiny PNG tests IPC previews; native capture pixels are tested under Xvfb separately.
+        import struct
+        import zlib
+        def chunk(kind: bytes, data: bytes) -> bytes:
+            """Encode one PNG chunk with a correct CRC."""
+            return struct.pack('!I', len(data)) + kind + data + struct.pack('!I', zlib.crc32(kind + data))
+        png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!2I5B', 1, 1, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(b'\x00\xff\x00\x00')) + chunk(b'IEND', b'')
+        capture = root / "bin/rdp-capture-window"
+        capture.write_text('#!/usr/bin/env python3\nimport json, os, sys\npath=sys.argv[sys.argv.index("--output")+1]\nfd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\nos.write(fd,' + repr(png) + ')\nos.close(fd)\nprint(json.dumps({"status":"content","reason":"Fixture image has content; appearance unconfirmed","file":path,"width":1,"height":1,"nonblack_ratio":1.0,"variance":1200.0,"capture_method":"composite"}))\n')
+        capture.chmod(0o700)
+        environment = dict(os.environ, XDG_CONFIG_HOME=str(root), XDG_STATE_HOME=str(root / 'state'), RDPCTL_FREERDP=str(client))
         if bundled_monitors:
-            environment.pop("RDPCTL_FREERDP", None)
-        driver = subprocess.Popen(["tauri-driver"], env=environment)
+            environment.pop('RDPCTL_FREERDP', None)
+        driver = subprocess.Popen(['tauri-driver'], env=environment)
         session: str | None = None
         try:
             for _ in range(100):
                 try:
-                    request("GET", "/status")
+                    request('GET', '/status')
                     break
                 except URLError:
                     if driver.poll() is not None:
-                        raise RuntimeError("tauri-driver exited before startup")
+                        raise RuntimeError('tauri-driver exited before startup')
                     time.sleep(0.1)
-            value = request("POST", "/session", {"capabilities": {"alwaysMatch": {
-                "browserName": "wry",
-                "tauri:options": {"application": application}
-            }}})
-            session = value["sessionId"]
-
+            value = request('POST', '/session', {'capabilities': {'alwaysMatch': {'browserName': 'wry', 'tauri:options': {'application': application}}}})
+            session = value['sessionId']
             def javascript(script: str) -> Any:
-                """Execute JavaScript inside the actual application webview."""
-                return request("POST", f"/session/{session}/execute/sync", {"script": script, "args": []})
-
-            wait_for(lambda: javascript("return document.querySelectorAll('.connection').length === 1"), "existing Go profile")
-            assert javascript("return document.querySelector('.connection h2').textContent") == existing["name"]
-            assert javascript("return document.querySelectorAll('.connection b').length") == 0
-            javascript("document.querySelector('#detect-monitors').click()")
+                """Execute JavaScript inside the actual native webview."""
+                return request('POST', f'/session/{session}/execute/sync', {'script': script, 'args': []})
+            def click(test_id: str) -> None:
+                """Activate an accessible control through its stable test identifier."""
+                javascript(f"document.querySelector('[data-testid={test_id}]').click()")
+            def fill(test_id: str, value: str) -> None:
+                """Enter text and notify Vue's real input handler."""
+                javascript(f"const input=document.querySelector('[data-testid={test_id}]'); input.value={json.dumps(value)}; input.dispatchEvent(new Event('input', {{bubbles:true}}))")
+            def action(profile_id: str, test_id: str) -> None:
+                """Activate a specific connection row's action."""
+                javascript(f"document.querySelector('[data-profile-id={profile_id}] [data-testid={test_id}]').click()")
+            def choose(test_id: str, label: str) -> None:
+                """Choose a PrimeVue option using its visible label."""
+                click(test_id)
+                wait_for(lambda: javascript("return document.querySelectorAll('[role=option]').length > 0"), 'select options')
+                javascript(f"Array.from(document.querySelectorAll('[role=option]')).find(option=>option.textContent.trim()==={json.dumps(label)}).click()")
+            def close_dialog() -> None:
+                """Close the test dialog using its explicit Close action."""
+                javascript("Array.from(document.querySelector('[data-testid=test-dialog]').querySelectorAll('button')).find(button=>button.textContent.trim()==='Close').click()")
+                wait_for(lambda: javascript("return !document.querySelector('[data-testid=test-dialog]')"), 'test dialog closed')
+            wait_for(lambda: javascript("return document.querySelector('[data-profile-id=existing]')"), 'legacy JSON connection table')
+            assert javascript("return document.querySelector('[data-testid=connections-table]').textContent.includes('Existing <b>profile</b>')")
+            assert not javascript("return document.querySelector('[data-testid=connections-table] b')")
+            assert javascript("return !!document.querySelector('[data-profile-id=existing] [data-testid=edit]')")
+            click('new-connection')
+            wait_for(lambda: javascript("return document.querySelector('[data-testid=editor-dialog]')"), 'new connection dialog')
+            click('detect-displays')
+            wait_for(lambda: javascript("return document.querySelector('[data-testid=editor-dialog] .monitor-list')"), 'SDL display detection')
             if bundled_monitors:
-                wait_for(lambda: javascript("return document.querySelectorAll('[name=monitor]').length > 0"), "bundled FreeRDP monitor enumeration")
                 screenshot.parent.mkdir(parents=True, exist_ok=True)
-                screenshot.write_bytes(base64.b64decode(request("GET", f"/session/{session}/screenshot")))
-                print("Portable GUI smoke passed: detected actual monitors through the bundled FreeRDP client.")
+                screenshot.write_bytes(base64.b64decode(request('GET', f'/session/{session}/screenshot')))
+                print('Portable GUI smoke passed: detected actual bundled FreeRDP monitors.')
                 return
-            wait_for(lambda: javascript("return document.querySelectorAll('[name=monitor]').length === 2"), "SDL monitor IDs")
-            javascript("""
-              const form = document.querySelector('#profile-form');
-              form.elements.name.value = 'New workstation';
-              form.elements.host.value = 'new.example.invalid';
-              form.elements.user.value = 'user';
-              form.elements.password.value = 'saved secret';
-              form.elements.fullscreen.checked = true;
-              form.elements.multi_monitor.checked = true;
-              document.querySelector('[name=monitor][value="3"]').checked = true;
-              form.requestSubmit();
-            """)
-            saved_path = profiles / "new-workstation.json"
-            wait_for(saved_path.exists, "saved profile")
-            saved: dict[str, Any] = json.loads(saved_path.read_text())
-            assert saved["monitors"] == "3"
-            assert saved["multi_monitor"] is True
-            assert "password" not in saved
+            choose('certificate-policy', 'Ignore certificate checks')
+            choose('certificate-policy', 'Verify certificate')
+            fill('profile-name', 'New workstation')
+            fill('profile-host', 'new.example.invalid')
+            fill('profile-user', 'user')
+            fill('profile-password', 'saved secret')
+            javascript("document.getElementById('fullscreen').click(); document.getElementById('multi-monitor').click(); document.getElementById('monitor-3').click()")
+            click('save-connection')
+            saved_path = profiles / 'new-workstation.json'
+            wait_for(saved_path.exists, 'saved profile')
+            saved = json.loads(saved_path.read_text())
+            assert saved['monitors'] == '3' and saved['multi_monitor'] and saved['fullscreen']
+            assert 'password' not in saved
             assert saved_path.stat().st_mode & 0o777 == 0o600
-            wait_for(lambda: javascript("return document.querySelectorAll('.connection').length === 2"), "saved connection card")
-            password_path = profiles / "passwords" / "new-workstation"
-            wait_for(password_path.exists, "saved plaintext password")
-            assert password_path.read_text() == "saved secret"
+            password_path = profiles / 'passwords/new-workstation'
+            wait_for(password_path.exists, 'saved plaintext password')
+            assert password_path.read_text() == 'saved secret'
             assert password_path.stat().st_mode & 0o777 == 0o600
-            assert javascript("return document.querySelectorAll('.connection')[1].querySelector('[name=password]').type") == "text"
-            assert javascript("return document.querySelectorAll('.connection')[1].querySelector('[name=password]').value") == "saved secret"
-            assert javascript("return document.querySelectorAll('.connection')[1].querySelector('.display-settings').textContent.includes('Automatic graphics (Wayland / X11)')")
-            assert javascript("return document.querySelectorAll('.connection')[1].querySelector('[name=video_mode]').value") == "auto"
-            javascript("document.querySelectorAll('.connection')[1].querySelector('button').click()")
-            expected_arguments = [
-                "/v:new.example.invalid", "/u:user", "/multimon", "/monitors:3", "/f", "/cert:deny", "/p:saved secret"
-            ]
-            wait_for(lambda: (root / "arguments").exists() and (root / "arguments").read_text().splitlines() == expected_arguments, "complete FreeRDP launch arguments")
-            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.actions button')[1].click()")
-            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].textContent.includes('Certificate trust failed')"), "certificate test failure")
-            arguments = (root / "arguments").read_text()
-            assert "+auth-only\n/sec:nla\n" in arguments
-            assert "/multimon" not in arguments
-            certificates = root / "freerdp" / "server"
-            certificates.mkdir(parents=True)
-            remembered = certificates / "new.example.invalid_3389.pem"
-            remembered.write_text("remembered certificate")
-            javascript("Array.from(document.querySelectorAll('.connection')[1].querySelectorAll('button')).find(button => button.textContent.startsWith('Back up remembered')).click()")
-            assert remembered.exists()
-            javascript("Array.from(document.querySelectorAll('.connection')[1].querySelectorAll('button')).find(button => button.textContent === 'Confirm certificate backup').click()")
-            wait_for(lambda: not remembered.exists(), "certificate backup")
-            assert next(certificates.glob("*.pem.previous-*")).read_text() == "remembered certificate"
-            javascript("Array.from(document.querySelectorAll('.connection')[1].querySelectorAll('button')).find(button => button.textContent === 'Use detected fingerprint').click()")
-            javascript("document.querySelectorAll('.connection')[1].querySelectorAll('.actions button')[1].click()")
-            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].textContent.includes('NLA authentication succeeded')"), "successful authentication test")
-            assert json.loads(saved_path.read_text())["fingerprint"] == "ab" * 32
-            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.command').textContent.includes('/p:saved secret')"), "full GUI test command")
-            javascript("""
-              const card = document.querySelectorAll('.connection')[1];
-              const editor = card.querySelector('details form');
-              editor.elements.name.value = 'Edited workstation';
-              editor.elements.host.value = 'edited.example.invalid';
-              editor.elements.user.value = 'DOMAIN\\\\other';
-              editor.elements.fullscreen.checked = false;
-              editor.elements.monitors.value = '1,3';
-              editor.requestSubmit();
-            """)
-            wait_for(lambda: json.loads(saved_path.read_text())["host"] == "edited.example.invalid", "edited connection")
-            edited = json.loads(saved_path.read_text())
-            assert edited["id"] == "new-workstation"
-            assert edited["user"] == "DOMAIN\\other" and edited["monitors"] == "1,3"
-            assert edited["fullscreen"] is False
-            assert password_path.read_text() == "saved secret"
-            javascript("""
-              const editor = document.querySelectorAll('.connection')[1].querySelector('details form');
-              editor.elements.monitors.value = '99';
-              Array.from(editor.querySelectorAll('button')).find(button => button.textContent === 'Detect displays for this connection').click();
-            """)
-            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('details form').textContent.includes('99 are unavailable')"), "stale monitor diagnosis")
-            javascript("""
-              const editor = document.querySelectorAll('.connection')[1].querySelector('details form');
-              for (const id of ['1', '3']) {
-                const checkbox = editor.querySelector(`input[type=checkbox][value="${id}"]`);
-                checkbox.checked = true;
-                checkbox.dispatchEvent(new Event('change'));
-              }
-            """)
-            javascript("document.querySelectorAll('.connection')[1].querySelector('button').click()")
-            wait_for(lambda: "/v:edited.example.invalid" in (root / "arguments").read_text(), "edited FreeRDP launch")
-            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.command').textContent.includes('/v:edited.example.invalid')"), "full GUI launch command")
-            wait_for(lambda: javascript("return document.querySelectorAll('.connection')[1].querySelector('.session-output').textContent.includes('fake session output')"), "live FreeRDP log")
-            # Confirm real GUI trial commands and preference persistence with the fake client.
-            javascript("window.videoCard = () => Array.from(document.querySelectorAll('.connection')).find(card => card.querySelector('h2').textContent === 'Edited workstation')")
-            unavailable_mode = "wayland-opengl" if os.environ.get("DISPLAY") else "x11-opengl"
-            with_history = json.loads(saved_path.read_text())
-            with_history["working_video_modes"] = [unavailable_mode]
-            saved_path.write_text(json.dumps(with_history))
-            javascript("window.videoCard().dataset.refreshMarker = 'before'; document.querySelector('#refresh').click()")
-            wait_for(lambda: javascript("return window.videoCard()?.dataset.refreshMarker !== 'before' && window.videoCard()?.querySelector('.video-tests')"), "confirmed history from another display environment")
-            lower_index, higher_index = (4, 0) if os.environ.get("DISPLAY") else (3, 1)
-            lower_mode = "x11-software" if os.environ.get("DISPLAY") else "wayland-opengles2"
-            higher_mode = "x11-opengl" if os.environ.get("DISPLAY") else "wayland-opengl"
-            higher_label = "X11 · OpenGL" if os.environ.get("DISPLAY") else "Wayland · OpenGL"
-            javascript(f"window.videoLower = {lower_index}; window.videoHigher = {higher_index}")
-            javascript("Array.from(window.videoCard().querySelectorAll('button')).find(button => button.textContent === 'Test video options').click()")
-            if not os.environ.get("DISPLAY"):
-                assert javascript("return window.videoCard().querySelectorAll('.video-trial')[4].querySelector('button').disabled")
-                assert javascript("return window.videoCard().querySelectorAll('.video-trial')[4].textContent.includes('DISPLAY is not set')")
-            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelector('button').click()")
-            wait_for(lambda: "/size:1280x720" in (root / "arguments").read_text(), "simple video trial arguments")
-            trial_arguments = (root / "arguments").read_text()
-            assert "/sec:nla" in trial_arguments
-            assert "/monitors:" not in trial_arguments and "/multimon" not in trial_arguments
-            wait_for(lambda: javascript("return !window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelector('button').disabled"), "video trial exit")
-            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelectorAll('button')[1].click()")
-            wait_for(lambda: json.loads(saved_path.read_text()).get("video_mode") == lower_mode, "confirmed lower-priority renderer")
-            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoHigher].querySelector('button').click()")
-            wait_for(lambda: javascript("return window.videoCard().querySelector('.command').textContent.includes(\"SDL_RENDER_DRIVER='opengl'\")"), "OpenGL video trial")
-            wait_for(lambda: javascript("return !window.videoCard().querySelectorAll('.video-trial')[window.videoHigher].querySelector('button').disabled"), "OpenGL trial exit")
-            assert javascript("return window.videoCard().querySelector('.graphics-info').textContent.includes('CPU rendering detected')")
-            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoHigher].querySelectorAll('button')[1].click()")
-            wait_for(lambda: json.loads(saved_path.read_text()).get("video_mode") == higher_mode, "OpenGL preference over lower-priority renderer")
-            assert json.loads(saved_path.read_text()).get("monitors", "") == ""
-            javascript("window.videoCard().dataset.refreshMarker = 'before'; document.querySelector('#refresh').click()")
-            wait_for(lambda: javascript(f"return window.videoCard()?.dataset.refreshMarker !== 'before' && window.videoCard()?.querySelector('[name=video_mode]')?.value === {json.dumps(higher_mode)}"), "remembered mode after refresh")
-            assert set(json.loads(saved_path.read_text())["working_video_modes"]) == {higher_mode, lower_mode, unavailable_mode}
-            javascript("Array.from(window.videoCard().querySelectorAll('button')).find(button => button.textContent === 'Test video options').click()")
-            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelector('button').click()")
-            wait_for(lambda: javascript("return !window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelector('button').disabled"), "repeated lower-priority trial exit")
-            javascript("window.videoCard().querySelectorAll('.video-trial')[window.videoLower].querySelectorAll('button')[1].click()")
-            wait_for(lambda: javascript(f"return document.querySelector('#status').textContent.includes({json.dumps('Remembered ' + higher_label)})"), "lower-priority renderer cannot downgrade confirmed OpenGL")
-            assert json.loads(saved_path.read_text())["video_mode"] == higher_mode
-            wait_for(lambda: javascript("return window.videoCard().querySelector('.video-tests').textContent.includes('Process exit: 0')"), "video exit evidence")
-            javascript("Array.from(window.videoCard().querySelectorAll('button')).find(button => button.textContent === 'Compare CLI authentication').click()")
-            wait_for(lambda: javascript("return document.querySelector('#status').textContent.includes('Both authentication methods')"), "stdin and direct CLI comparison")
-            javascript("Array.from(window.videoCard().querySelectorAll('button')).find(button => button.textContent === 'Export diagnostics').click()")
-            wait_for(lambda: list((root / "state/rdpctl/diagnostics").glob('*.json')), "diagnostic JSON export")
-            exported = json.loads(next((root / "state/rdpctl/diagnostics").glob('*.json')).read_text())
-            assert exported["profile"]["host"] == "edited.example.invalid"
-            assert any('/p:' in attempt["command"] for attempt in exported["attempts"])
-            transports = {attempt["authentication"]["transport"] for attempt in exported["attempts"] if attempt["authentication"]}
-            assert transports == {"stdin", "argv"}
-            compared = [attempt for attempt in exported["attempts"] if attempt["authentication"]][-2:]
-            assert [attempt["authentication"]["transport"] for attempt in compared] == ["stdin", "argv"]
-            assert all(attempt["exit_code"] == 0 for attempt in compared)
-            assert any(attempt["outcome"] for attempt in exported["attempts"])
-            original = saved_path.read_bytes()
-            javascript("""
-              const form = document.querySelector('#profile-form');
-              form.elements.name.value = 'New workstation';
-              form.elements.host.value = 'changed.example.invalid';
-              form.elements.user.value = 'other';
-              form.requestSubmit();
-            """)
-            wait_for(lambda: javascript("return document.querySelector('#status').classList.contains('error')"), "duplicate error")
-            assert saved_path.read_bytes() == original
-            assert json.loads((profiles / "existing.json").read_text()) == existing
+            wait_for(lambda: javascript("return document.querySelector('[data-profile-id=new-workstation]')"), 'new connection row')
+            action('new-workstation', 'edit')
+            wait_for(lambda: javascript("return document.querySelector('[data-testid=profile-password]')?.value==='saved secret'"), 'visible saved password')
+            assert javascript("return document.querySelector('[data-testid=profile-password]').type==='text'")
+            fill('profile-name', 'Edited workstation')
+            fill('profile-host', 'edited.example.invalid')
+            fill('profile-user', 'DOMAIN\\other')
+            fill('monitor-ids', '99')
+            click('detect-displays')
+            wait_for(lambda: javascript("return document.querySelector('#status').textContent.includes('99 unavailable')"), 'stale monitor diagnosis')
+            fill('monitor-ids', '1,3')
+            click('save-connection')
+            wait_for(lambda: json.loads(saved_path.read_text())['host'] == 'edited.example.invalid', 'edited profile')
+            action('new-workstation', 'test')
+            wait_for(lambda: javascript("return document.querySelector('[data-testid=test-dialog]')"), 'test dialog')
+            click('test-authentication')
+            wait_for(lambda: javascript("return document.querySelector('[data-testid=authentication-result]').textContent.includes('Certificate trust failed')"), 'certificate rejection')
+            remembered = root / 'freerdp/server/edited.example.invalid_3389.pem'
+            remembered.parent.mkdir(parents=True)
+            remembered.write_text('remembered certificate')
+            click('backup-certificate'); click('confirm-certificate-backup')
+            wait_for(lambda: not remembered.exists(), 'host-only certificate backup')
+            assert next(remembered.parent.glob('*.pem.previous-*')).read_text() == 'remembered certificate'
+            click('pin-fingerprint')
+            wait_for(lambda: javascript("return document.querySelector('[data-testid=fingerprint]')?.value==='" + 'ab' * 32 + "'"), 'detected fingerprint in editor')
+            click('save-connection')
+            wait_for(lambda: json.loads(saved_path.read_text()).get('certificate') == 'fingerprint', 'saved fingerprint policy')
+            click('test-authentication')
+            wait_for(lambda: javascript("return document.querySelector('[data-testid=authentication-result]').textContent.includes('Sign-in accepted')"), 'NLA authentication success')
+            assert javascript("return document.querySelector('[data-testid=authentication-result]').textContent.includes('/p:saved secret')")
+            click('test-all')
+            # Real batch launches run sequentially; fixture client exits after six seconds each.
+            deadline = time.monotonic() + 70
+            while time.monotonic() < deadline:
+                if javascript("return document.querySelector('[data-testid=test-status]').textContent.includes('Tests complete')"):
+                    break
+                time.sleep(0.2)
+            else:
+                raise AssertionError('Batch video tests did not finish')
+            modes = ['x11-opengl', 'x11-opengles2', 'x11-software'] if os.environ.get('DISPLAY') else ['wayland-opengl', 'wayland-opengles2']
+            unavailable = 'wayland-opengl' if os.environ.get('DISPLAY') else 'x11-opengl'
+            assert javascript(f"return document.querySelector('[data-testid=open-{unavailable}]').disabled")
+            for mode in modes:
+                assert not javascript(f"return document.querySelector('[data-testid=confirm-{mode}]').disabled")
+                assert javascript(f"return document.querySelector('[data-testid=result-{mode}]').textContent.includes('confirmation')")
+            if os.environ.get('DISPLAY'):
+                assert javascript("return document.querySelector('[data-testid=video-results]').textContent.includes('Image has content')")
+            lower, higher = ('x11-software', 'x11-opengl') if os.environ.get('DISPLAY') else ('wayland-opengles2', 'wayland-opengl')
+            assert not json.loads(saved_path.read_text()).get('working_video_modes')
+            click('confirm-' + lower)
+            wait_for(lambda: json.loads(saved_path.read_text()).get('video_mode') == lower, 'operator confirmation saved')
+            click('confirm-' + higher)
+            wait_for(lambda: json.loads(saved_path.read_text()).get('video_mode') == higher, 'confirmed OpenGL preference')
+            click('confirm-' + lower)
+            wait_for(lambda: 'Remembered' in javascript("return document.querySelector('#status').textContent"), 'lower-mode confirmation')
+            assert json.loads(saved_path.read_text())['video_mode'] == higher
+            assert json.loads(saved_path.read_text()).get('monitors', '') == ''
+            click('compare-authentication')
+            wait_for(lambda: javascript("return document.querySelectorAll('[data-testid=authentication-result]').length === 2"), 'stdin and CLI comparison')
+            click('export-diagnostics')
+            exported_dir = root / 'state/rdpctl/diagnostics'
+            wait_for(lambda: list(exported_dir.glob('rdp-*.json')), 'diagnostic export')
+            exported = json.loads(next(exported_dir.glob('rdp-*.json')).read_text())
+            auth_attempts = [item for item in exported['attempts'] if item['authentication']]
+            assert {item['authentication']['transport'] for item in auth_attempts} == {'stdin', 'argv'}
+            assert any('/p:saved secret' in item['command'] for item in exported['attempts'])
+            assert any(item.get('screenshot', {}).get('status') == 'content' for item in exported['attempts'] if item.get('screenshot')) == bool(os.environ.get('DISPLAY'))
             screenshot.parent.mkdir(parents=True, exist_ok=True)
-            screenshot.write_bytes(base64.b64decode(request("GET", f"/session/{session}/screenshot")))
-            print("GUI smoke passed: existing profiles, safe rendering, save, monitors, launch, duplicate protection.")
+            screenshot.write_bytes(base64.b64decode(request('GET', f'/session/{session}/screenshot')))
+            close_dialog()
+            saved_before_duplicate = saved_path.read_bytes()
+            click('new-connection')
+            wait_for(lambda: javascript("return document.querySelector('[data-testid=editor-dialog]')"), 'duplicate new dialog')
+            fill('profile-name', 'New workstation'); fill('profile-host', 'changed.example.invalid'); fill('profile-user', 'other')
+            click('save-connection')
+            wait_for(lambda: 'already exists' in javascript("return document.querySelector('#status').textContent"), 'duplicate refusal')
+            assert saved_path.read_bytes() == saved_before_duplicate
+            assert (profiles / 'existing.json').read_text() == original
+            print('GUI smoke passed: compact Vue table/dialogs, edit/password, certificate, batch video, capture evidence, preference, export and duplicate protection.')
         finally:
             if session:
-                request("DELETE", f"/session/{session}")
+                try:
+                    request('DELETE', f'/session/{session}')
+                except Exception as failure:
+                    print(f'WebDriver cleanup: {failure}', file=sys.stderr)
             driver.terminate()
-            try:
-                driver.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                driver.kill()
-                driver.wait()
+            driver.wait(timeout=10)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

@@ -132,6 +132,43 @@ async fn compare_authentication(
     Ok(results)
 }
 
+#[tauri::command]
+async fn run_video_tests(
+    app: tauri::AppHandle,
+    id: String,
+    password: Option<String>,
+    history: tauri::State<'_, DiagnosticHistory>,
+) -> Result<rdpctl_core::VideoTestBatch, String> {
+    let store = Store::from_environment()?;
+    let profile = store.load(&id)?;
+    let password = password
+        .or(store.password(&id)?)
+        .ok_or("Enter a password or save one before testing.")?;
+    let client = client_path()?;
+    let history = history.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        rdpctl_core::run_video_tests(profile, &client, &password, &history, |mode| {
+            let _ = app.emit(
+                "video-test-progress",
+                VideoTestProgress {
+                    id: id.clone(),
+                    mode,
+                    phase: "starting",
+                },
+            );
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[derive(Clone, Serialize)]
+struct VideoTestProgress {
+    id: String,
+    mode: VideoMode,
+    phase: &'static str,
+}
+
 #[derive(Serialize)]
 struct LaunchResult {
     pid: u32,
@@ -293,6 +330,7 @@ fn main() {
             list_monitors,
             video_availability,
             compare_authentication,
+            run_video_tests,
             export_diagnostics
         ])
         .run(tauri::generate_context!())

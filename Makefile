@@ -1,9 +1,9 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build package check gui-check gui-build gui-package gui-portable-package
+.PHONY: help build package check gui-check gui-build gui-package gui-portable-package gui-ui-deps gui-ui-check gui-ui-build
 help:
 	@printf '%s\n' 'Targets:' '  make build    Compile on Ubuntu 24.04 x86_64.' '  make package  Create the client tarball and test DEB (requires nFPM).' '  make check    Run Go checks, shell lint, and launcher tests.'
-	@printf '%s\n' '  make gui-check    Check the Rust desktop app.' '  make gui-build    Build the Rust/Tauri desktop app.' '  make gui-package  Prepare GUI sources, notices and test DEB (requires nFPM).' '  make gui-portable-package  Build the single combined RPM and runtime test artifacts.'
+	@printf '%s\n' '  make gui-check    Check the Vue interface and Rust desktop app.' '  make gui-ui-build Build the bundled Vue/PrimeVue interface.' '  make gui-build    Build the Rust/Tauri desktop app.' '  make gui-package  Prepare GUI sources, notices and test DEB (requires nFPM).' '  make gui-portable-package  Build the single combined RPM and runtime test artifacts.'
 
 build:
 	bash scripts/build-freerdp.sh
@@ -17,12 +17,21 @@ check:
 	shellcheck scripts/*.sh scripts/diagnostics/*.sh tests/*.sh
 	bash tests/wrapper.sh
 
-gui-check:
+gui-ui-deps:
+	npm ci --prefix desktop/ui
+
+gui-ui-check: gui-ui-deps
+	npm test --prefix desktop/ui
+
+gui-ui-build: gui-ui-deps
+	npm run build --prefix desktop/ui
+
+gui-check: gui-ui-check gui-ui-build
 	cargo fmt --manifest-path desktop/Cargo.toml --all -- --check
 	cargo test --manifest-path desktop/Cargo.toml -p rdpctl-core --locked
 	cargo clippy --manifest-path desktop/Cargo.toml --workspace --locked -- -D warnings
 
-gui-build:
+gui-build: gui-ui-build
 	cargo build --manifest-path desktop/Cargo.toml -p rdpctl-gui --release --locked
 
 gui-package:

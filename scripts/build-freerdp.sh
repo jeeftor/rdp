@@ -95,3 +95,8 @@ done
 CGO_ENABLED=0 go build -C "$root" -trimpath -ldflags='-s -w' -o "$prefix/bin/rdpctl" ./cmd/rdpctl
 cc "$root/tests/sdl-backends.c" -o "$work/sdl-backends" -I"$prefix/include" -L"$prefix/lib" -lSDL3
 cc -Wall -Wextra -Werror "$root/scripts/render-probe.c" -o "$prefix/bin/rdp-render-probe" -I"$prefix/include" -L"$prefix/lib" -lSDL3
+
+# Capture only the selected FreeRDP process window; never the entire desktop.
+# pkg-config emits separate compiler/linker arguments for system libraries.
+# shellcheck disable=SC2046
+cc -Wall -Wextra -Werror -DHAVE_XCOMPOSITE "$root/scripts/capture-window.c" -o "$prefix/bin/rdp-capture-window" $(pkg-config --cflags --libs x11 xcomposite libpng)

@@ -177,7 +177,7 @@ fn test_with_timeout(
     Ok(result)
 }
 
-fn read_log(log: &mut File) -> Result<String, String> {
+pub(crate) fn read_log(log: &mut File) -> Result<String, String> {
     let length = log.metadata().map_err(|error| error.to_string())?.len();
     log.seek(SeekFrom::Start(length.saturating_sub(65536)))
         .map_err(|error| error.to_string())?;

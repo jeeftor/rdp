@@ -18,6 +18,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/ui/package-lock.json
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -49,6 +54,7 @@ jobs:
       - name: Check and build desktop
         run: |
           bash desktop/tests/portable-notices.sh
+          bash tests/capture-window-test.sh
           make gui-check
           shellcheck scripts/package-gui.sh desktop/tests/display-backends.sh
           cargo build --manifest-path desktop/Cargo.toml -p rdpctl-gui --locked
