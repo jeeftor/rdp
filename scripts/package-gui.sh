@@ -30,5 +30,5 @@ done < <(find desktop/ui/node_modules -type f \( -iname '*license*' -o -iname '*
 # shellcheck disable=SC2016
 envsubst '${PACKAGE_VERSION} ${GUI_BINARY} ${GUI_LICENSES}' < packaging/gui-nfpm.yaml > .build/gui-nfpm.yaml
 nfpm package --config .build/gui-nfpm.yaml --packager deb --target "output/rdpctl-gui_${PACKAGE_VERSION}_amd64.deb"
-tar -czf "output/rdpctl-gui-${PACKAGE_VERSION}-sources.tar.gz" -C .build gui-sources
+tar -I pigz -cf "output/rdpctl-gui-${PACKAGE_VERSION}-sources.tar.gz" -C .build gui-sources
 (cd output && sha256sum rdpctl-gui*.deb rdpctl-gui*-sources.tar.gz > GUI-SHA256SUMS)

@@ -264,3 +264,9 @@ and `npm run build --prefix desktop/ui` (Node 20 or newer on the build machine).
 The installed RHEL RPM contains the compiled interface and capture helper;
 it does not require Node, npm, a CDN, or online resources to run. Sources include
 vendored frontend modules and their license notices.
+
+CI restores compatible Rust dependencies and stores refreshed build artifacts
+per commit. It runs the frontend checks/build once before the Rust builds.
+Packaging uses `pigz` (installed by `scripts/install-build-deps.sh`) to create
+standard gzip-compressed tar archives in parallel; package formats and native
+GUI checks are unchanged.

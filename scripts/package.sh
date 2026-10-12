@@ -48,8 +48,8 @@ bash "$root/scripts/collect-libs.sh" "$bundle"
 bash "$root/scripts/validate-bundle.sh" "$bundle"
 (cd "$bundle" && find . -type f -print0 | sort -z | xargs -0 sha256sum) >"$bundle/SHA256SUMS"
 epoch="${SOURCE_DATE_EPOCH:-$(git -C "$root" log -1 --format=%ct)}"
-tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -C "$work" -czf "$output/$name.tar.gz" "$name"
-tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -C "$work" -czf "$output/$name-sources.tar.gz" download system-sources go-sources
+tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -C "$work" -I pigz -cf "$output/$name.tar.gz" "$name"
+tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -C "$work" -I pigz -cf "$output/$name-sources.tar.gz" download system-sources go-sources
 for command in freerdp rdpctl; do
   target="$command"
   [[ "$command" != rdpctl ]] || target=bin/rdpctl

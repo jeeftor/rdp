@@ -229,7 +229,7 @@ def main() -> None:
             wait_for(lambda: javascript("return document.querySelector('[data-testid=editor-dialog]')"), 'duplicate new dialog')
             fill('profile-name', 'New workstation'); fill('profile-host', 'changed.example.invalid'); fill('profile-user', 'other')
             click('save-connection')
-            wait_for(lambda: 'already exists' in javascript("return document.querySelector('#status').textContent"), 'duplicate refusal')
+            wait_for(lambda: 'existing profile will not be overwritten' in javascript("return document.querySelector('#status').textContent"), 'duplicate refusal')
             assert saved_path.read_bytes() == saved_before_duplicate
             assert (profiles / 'existing.json').read_text() == original
             print('GUI smoke passed: compact Vue table/dialogs, edit/password, certificate, batch video, capture evidence, preference, export and duplicate protection.')
