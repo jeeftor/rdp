@@ -170,7 +170,7 @@ def main() -> None:
             action('new-workstation', 'test')
             wait_for(lambda: javascript("return document.querySelector('[data-testid=test-dialog]')"), 'test dialog')
             click('test-authentication')
-            wait_for(lambda: javascript("return document.querySelector('[data-testid=authentication-result]').textContent.includes('Certificate trust failed')"), 'certificate rejection')
+            wait_for(lambda: javascript("return document.querySelector('[data-testid=authentication-result]')?.textContent.includes('Certificate trust failed')"), 'certificate rejection')
             remembered = root / 'freerdp/server/edited.example.invalid_3389.pem'
             remembered.parent.mkdir(parents=True)
             remembered.write_text('remembered certificate')
@@ -182,7 +182,7 @@ def main() -> None:
             click('save-connection')
             wait_for(lambda: json.loads(saved_path.read_text()).get('certificate') == 'fingerprint', 'saved fingerprint policy')
             click('test-authentication')
-            wait_for(lambda: javascript("return document.querySelector('[data-testid=authentication-result]').textContent.includes('Sign-in accepted')"), 'NLA authentication success')
+            wait_for(lambda: javascript("return document.querySelector('[data-testid=authentication-result]')?.textContent.includes('Sign-in accepted')"), 'NLA authentication success')
             assert javascript("return document.querySelector('[data-testid=authentication-result]').textContent.includes('/p:saved secret')")
             click('test-all')
             # Real batch launches run sequentially; fixture client exits after six seconds each.
