@@ -105,12 +105,14 @@ def main() -> None:
                 return request('POST', f'/session/{session}/execute/sync', {'script': script, 'args': []})
             def click(test_id: str) -> None:
                 """Activate an accessible control through its stable test identifier."""
+                wait_for(lambda: javascript(f"return !!document.querySelector('[data-testid={test_id}]') && !document.querySelector('[data-testid={test_id}]').disabled"), f'{test_id} enabled')
                 javascript(f"document.querySelector('[data-testid={test_id}]').click()")
             def fill(test_id: str, value: str) -> None:
                 """Enter text and notify Vue's real input handler."""
                 javascript(f"const input=document.querySelector('[data-testid={test_id}]'); input.value={json.dumps(value)}; input.dispatchEvent(new Event('input', {{bubbles:true}}))")
             def action(profile_id: str, test_id: str) -> None:
                 """Activate a specific connection row's action."""
+                wait_for(lambda: javascript(f"return !!document.querySelector('[data-profile-id={profile_id}] [data-testid={test_id}]') && !document.querySelector('[data-profile-id={profile_id}] [data-testid={test_id}]').disabled"), f'{profile_id} {test_id} enabled')
                 javascript(f"document.querySelector('[data-profile-id={profile_id}] [data-testid={test_id}]').click()")
             def choose(test_id: str, label: str) -> None:
                 """Choose a PrimeVue option using its visible label."""
@@ -231,6 +233,15 @@ def main() -> None:
             assert saved_path.read_bytes() == saved_before_duplicate
             assert (profiles / 'existing.json').read_text() == original
             print('GUI smoke passed: compact Vue table/dialogs, edit/password, certificate, batch video, capture evidence, preference, export and duplicate protection.')
+        except Exception:
+            if session:
+                try:
+                    screenshot.parent.mkdir(parents=True, exist_ok=True)
+                    screenshot.write_bytes(base64.b64decode(request('GET', f'/session/{session}/screenshot')))
+                    print('GUI failure state:', javascript("return {status:document.querySelector('#status')?.textContent, dialogs:Array.from(document.querySelectorAll('[role=dialog]')).map(node=>node.textContent), buttons:Array.from(document.querySelectorAll('[data-testid]')).filter(node=>node.tagName==='BUTTON').map(node=>({id:node.dataset.testid,disabled:node.disabled}))}"), file=sys.stderr)
+                except Exception as snapshot_error:
+                    print(f'Failure snapshot unavailable: {snapshot_error}', file=sys.stderr)
+            raise
         finally:
             if session:
                 try:
